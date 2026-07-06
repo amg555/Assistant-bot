@@ -77,7 +77,7 @@ const envSchema = z.object({
   // personal, non-commercial deployment.
   JINA_API_KEY: z.string().optional().default(""),
   JINA_EMBEDDING_MODEL: z.string().min(1).default("jina-embeddings-v3"),
-  JINA_EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().default(768),
+  JINA_EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().default(256),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -100,12 +100,12 @@ create table if not exists public.notes (
   -- from re-importing a change WE just pushed (an infinite sync loop).
   notion_page_id          text,
   notion_last_synced_edit timestamptz,
-  -- Optional semantic-search vector (Jina embeddings, 768 dimensions —
+  -- Optional semantic-search vector (Jina embeddings, 256 dimensions —
   -- see docs/ai-integration.md). Stays null for every note unless
   -- JINA_API_KEY is configured; nothing reads or requires this column
   -- when the feature is off, so enabling/disabling it later is purely
   -- additive and never breaks existing notes.
-  embedding          vector(768),
+  embedding          vector(256),
   -- Generated tsvector column powers RAG-style retrieval for the AI
   -- assistant: we look up the few most relevant notes for THIS account
   -- only, via Postgres full-text search, and send only those snippets to
@@ -318,7 +318,7 @@ $$;
 -- ---------------------------------------------------------------------
 create or replace function public.semantic_search_notes_for_account(
   p_account_id uuid,
-  p_query_embedding vector(768),
+  p_query_embedding vector(256),
   p_limit int default 5
 )
 returns table (
