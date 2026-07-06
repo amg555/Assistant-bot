@@ -37,6 +37,7 @@ import {
 import { parseWhen, extractRecurrence, parseHourOfDay, parseRelativeDurationMs } from "../lib/parseWhen.js";
 import { checkRateLimit } from "../middleware/rateLimit.js";
 import { recordUndoableAction, takeUndoableAction } from "../lib/undoStore.js";
+import { recordExchange, getConversationHistory } from "../lib/conversationMemory.js";
 import { logError } from "../lib/logger.js";
 import { isGroqConfigured, isNotionConfigured, isSemanticSearchConfigured, env } from "../config/env.js";
 import { interpretMessage, answerQuestionWithRag, type AiIntent } from "../services/aiService.js";
@@ -550,8 +551,14 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       if (!result.ok) {
         return { kind: "text", text: "I couldn't reach the AI service just now. Please try again shortly." };
       }
+      const firstChat = result.intents.find((i) => i.type === "chat");
+      if (firstChat && firstChat.type === "chat") {
+        recordExchange(accountId, "assistant", firstChat.text);
+        return { kind: "text", text: firstChat.text };
+      }
       const firstIntent = result.intents[0];
       if (firstIntent?.type === "answer_question") {
+        recordExchange(accountId, "assistant", firstIntent.answer);
         return { kind: "text", text: firstIntent.answer };
       }
       return { kind: "text", text: "I don't have enough information in your notes to answer that." };
@@ -563,7 +570,9 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
     // proposes is re-validated through the same schemas as manual
     // commands before touching the database (see aiService.ts).
     if (isGroqConfigured && (await isAiEnabledForAccount(accountId))) {
-      const aiResult = await interpretMessage(accountId, text, new Date().toISOString());
+      recordExchange(accountId, "user", text);
+      const history = getConversationHistory(accountId).slice(0, -1);
+      const aiResult = await interpretMessage(accountId, text, new Date().toISOString(), [], history);
 
       if (aiResult.ok) {
         // A single message can describe multiple distinct items (e.g.
@@ -579,7 +588,9 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
           for (const intent of recognizedIntents) {
             outcomeLines.push(await executeAiIntent(accountId, intent));
           }
-          return { kind: "text", text: outcomeLines.join("\n") };
+          const replyText = outcomeLines.join("\n");
+          recordExchange(accountId, "assistant", replyText);
+          return { kind: "text", text: replyText };
         }
         // Every intent came back "unrecognized" — fall through to the
         // generic help message below, same as the pre-multi-intent

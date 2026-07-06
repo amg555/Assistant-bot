@@ -146,7 +146,8 @@ export async function interpretMessage(
   accountId: string,
   message: string,
   nowIso: string,
-  contextSnippets: string[] = []
+  contextSnippets: string[] = [],
+  history: { role: "user" | "assistant"; text: string }[] = []
 ): Promise<AiResult> {
   if (!groqClient) {
     return { ok: false, reason: "not_configured" };
@@ -165,10 +166,16 @@ export async function interpretMessage(
             .join("\n")}`
         : "";
 
+    const historyMessages = history.map((h) => ({
+      role: h.role as "user" | "assistant",
+      content: h.text,
+    }));
+
     const completion = await groqClient.chat.completions.create({
       model: env.GROQ_MODEL,
       messages: [
         { role: "system", content: `${SYSTEM_PROMPT}\nCurrent time (ISO-8601): ${nowIso}${contextBlock}` },
+        ...historyMessages,
         { role: "user", content: message },
       ],
       tools: TOOLS,
