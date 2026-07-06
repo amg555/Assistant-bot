@@ -80,9 +80,54 @@ Then **talk to your bot on Telegram** — it understands plain English.
 ## How it works
 
 ```
-You (Telegram/Discord/WhatsApp) → Webhook → Express Server → Zod Validation → Supabase
-                                           ↕
-                                      Groq AI (optional)
+                                        ┌──────────────────────────────────────────┐
+                                        │              Express Server              │
+  Telegram ─── webhook ───┐             │  ┌──────────────────────────────────┐   │
+                          │             │  │       Webhook Verification        │   │
+  Discord  ─── webhook ───┼── verify ──→  │  (secret_token / Ed25519 / HMAC)  │   │
+                          │             │  └──────────┬───────────────────────┘   │
+  WhatsApp ─── webhook ───┘             │             ↓                          │
+                                        │  ┌──────────────────────────────────┐   │
+  External  ─── webhook ────────────────→  │     Adapter Layer (platform)     │   │
+  (n8n/IFTTT)         POST              │  │  parse → IncomingCommand → reply  │   │
+                                        │  └──────────┬───────────────────────┘   │
+                                        │             ↓                          │
+                                        │  ┌──────────────────────────────────┐   │
+                                        │  │     Command Handler (agnostic)   │   │
+                                        │  │  ┌───────┐  ┌──────┐  ┌──────┐  │   │
+                                        │  │  │Notes  │  │Tasks │  │Remind│  │   │
+                                        │  │  └───────┘  └──────┘  └──────┘  │   │
+                                        │  │  ┌───────┐  ┌──────┐  ┌──────┐  │   │
+                                        │  │  │Alarms │  │Charts│  │Ask AI│  │   │
+                                        │  │  └───────┘  └──────┘  └──────┘  │   │
+                                        │  └──────────┬───────────────────────┘   │
+                                        │             │                          │
+                                        │  ┌──────────▼───────────────────────┐  │
+                                        │  │         Service Layer            │  │
+                                        │  │  ┌────────┐ ┌────────┐ ┌──────┐ │  │
+                                        │  │  │Account  │ │Notes   │ │Tasks │ │  │
+                                        │  │  │ Service │ │Service │ │Service│ │  │
+                                        │  │  └────────┘ └────────┘ └──────┘ │  │
+                                        │  │  ┌────────┐ ┌────────┐ ┌──────┐ │  │
+                                        │  │  │Reminder│ │AI      │ │RAG   │ │  │
+                                        │  │  │Service │ │Service │ │Service│ │  │
+                                        │  │  └───┬────┘ └───┬────┘ └──┬───┘ │  │
+                                        │  └──────┼──────────┼─────────┼──────┘  │
+                                        └─────────┼──────────┼─────────┼─────────┘
+                                                  │          │         │
+            ┌──────────────────────────┐  ┌───────▼──┐ ┌──────▼──┐ ┌──▼────────┐
+            │     External AI / Search  │  │ Supabase │ │  Groq   │ │   Jina    │
+            │                          │  │ (PG +     │ │(Llama 3  │ │(Embeddings│
+            │  ┌──────┐  ┌───────────┐ │  │  Storage) │ │ 70B /    │ │ 256-dim)  │
+            │  │Notion│  │ Webhook   │ │  │           │ │ Whisper) │ │           │
+            │  │OAuth │  │ Inbox     │ │  │ Tables:   │ │          │ │           │
+            │  │+ Sync│  │(external  │ │  │ accounts  │ │          │ │           │
+            │  └──────┘  │ POST)     │ │  │ notes     │ │          │ │           │
+            │            └───────────┘ │  │ tasks     │ │          │ │           │
+            │                          │  │ reminders │ │          │ │           │
+            │                          │  │ conv_hist │ │          │ │           │
+            │                          │  │ activity  │ │          │ │           │
+            └──────────────────────────┘  └───────────┘ └──────────┘ └───────────┘
 ```
 
 - **Zero client-side code.** The bot server holds the only Supabase key.
