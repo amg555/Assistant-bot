@@ -64,10 +64,12 @@ Bot:        Got it — you said: add milk and eggs to shopping list. Saved your 
 git clone https://github.com/amg555/Assistant-bot.git
 cd Assistant-bot
 npm install
-cp .env.example .env    # fill in your keys
+npm run setup          # interactive wizard — prompts for keys, creates .env
 npm run build
 npm start
 ```
+
+> `npm run setup` walks you through each key, auto-generates secrets, and can optionally run the DB migration and register the Telegram webhook for you.
 
 Then **talk to your bot on Telegram** — it understands plain English.
 
