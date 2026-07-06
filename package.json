@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "setup": "tsx src/cli/setup.ts",
     "register:discord-commands": "tsx src/adapters/discord/registerCommands.ts",
     "set:telegram-webhook": "tsx src/adapters/telegram/setWebhook.ts",
     "docker:build": "docker build -t notion-bot-assistant .",
