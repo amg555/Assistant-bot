@@ -1,0 +1,15 @@
+keep-supabase-alive:
+  image: curlimages/curl:latest
+  stage: keep-alive
+  script:
+    - curl -s -o /dev/null -w "%{http_code}" -X GET
+      "https://qqieiiwocxkxujdfjpxl.supabase.co/rest/v1/"
+      -H "apikey: ${SUPABASE_ANON_KEY}"
+    - echo "Pinged Supabase at $(date -u)"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      when: always
+    - when: never
+
+stages:
+  - keep-alive
