@@ -15,6 +15,17 @@ create index if not exists idx_conversation_history_account
   on public.conversation_history (account_id, created_at desc);
 
 alter table public.conversation_history enable row level security;
+
+-- Add webhook_secret column if it doesn't exist (accounts table already exists).
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'accounts' and column_name = 'webhook_secret'
+  ) then
+    alter table public.accounts add column webhook_secret text;
+  end if;
+end $$;
 `;
 
 export async function runMigrations(): Promise<void> {

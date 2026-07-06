@@ -7,6 +7,7 @@ import {
   getAccountTimeZone,
   setAccountTimeZone,
   setDigestEnabled,
+  getOrCreateWebhookSecret,
   type Platform,
 } from "../services/accountService.js";
 import { createNote, listRecentNotes, deleteNote } from "../services/notesService.js";
@@ -95,6 +96,7 @@ const HELP_TEXT = [
   "  undo — revert your last action (works for a few minutes)",
   "  link — get a code to connect another platform to this account",
   "  connect <code> — merge accounts from another platform",
+  "  webhook link — get a URL to push data from external services (n8n, IFTTT, etc.)",
   "",
   "📊  Activity",
   "  chart [7d|30d] [tasks|notes|reminders] — see your activity",
@@ -462,6 +464,15 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       );
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
       return { kind: "text", text: "Linked! This platform now shares the same notes, tasks, and reminders." };
+    }
+
+    if (lower === "webhook link") {
+      const result = await getOrCreateWebhookSecret(accountId);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      return {
+        kind: "text",
+        text: `Your webhook inbox is ready.\n\nPOST to this URL with an X-Webhook-Secret header:\n${result.data.url}\n\nYour secret:\n${result.data.secret}\n\nExample:\ncurl -X POST "${result.data.url}" \\\n  -H "Content-Type: application/json" \\\n  -H "X-Webhook-Secret: ${result.data.secret}" \\\n  -d '{"text":"buy milk","source":"n8n"}'`,
+      };
     }
 
     if (lower === "ai on") {

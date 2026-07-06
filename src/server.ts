@@ -11,6 +11,7 @@ import { cronRouter } from "./routes/cronDispatchRoute.js";
 import { digestRouter } from "./routes/digestDispatchRoute.js";
 import { notionOAuthRouter } from "./routes/notionOAuthRoute.js";
 import { notionWebhookRouter } from "./routes/notionWebhookRoute.js";
+import { webhookIncomingRouter } from "./routes/webhookIncomingRoute.js";
 import { runMigrations } from "./lib/migrate.js";
 
 const app = express();
@@ -100,6 +101,7 @@ app.use("/", cronRouter);
 app.use("/", digestRouter);
 app.use("/", notionOAuthRouter);
 app.use("/", notionWebhookRouter);
+app.use("/", webhookIncomingRouter);
 
 // 404 fallback — explicit, not silent.
 app.use((req: Request, res: Response) => {

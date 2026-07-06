@@ -45,6 +45,10 @@ create table if not exists public.accounts (
   digest_enabled       boolean not null default false,
   digest_hour          int not null default 8 check (digest_hour between 0 and 23),
   last_digest_sent_date text,
+  -- Webhook inbox: a per-account secret for accepting external HTTP
+  -- requests (IFTTT, n8n, email forwarders, etc.) as notes. Generated
+  -- on first request via "webhook link" command. Null = not set up.
+  webhook_secret       text,
   created_at         timestamptz not null default now()
 );
 
