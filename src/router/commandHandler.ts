@@ -114,6 +114,33 @@ const HELP_TEXT = [
 
 const WELCOME_TEXT = "Hey there! I'm your personal assistant. I'll keep your notes, tasks, and reminders in one place. Try /help to see everything I can do, or just start typing — say something like \"note hello world\" or \"task buy milk by tomorrow\".";
 
+function friendlyTime(iso: string, tz?: string): string {
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const diffMs = d.getTime() - now.getTime();
+    const abs = Math.abs(diffMs);
+    const isPast = diffMs < 0;
+
+    if (abs < 60000) return isPast ? "just now" : "in less than a minute";
+    if (abs < 3600000) {
+      const m = Math.round(abs / 60000);
+      return isPast ? `${m}m ago` : `in ${m}m`;
+    }
+    if (abs < 86400000) {
+      const h = Math.round(abs / 3600000);
+      return isPast ? `${h}h ago` : `in ${h}h`;
+    }
+    return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  } catch {
+    return iso;
+  }
+}
+
+function shortId(id: string): string {
+  return id.slice(0, 8);
+}
+
 export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
   let accountId = cmd.resolvedAccountId;
   if (!accountId) {
@@ -242,17 +269,18 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       const result = await listOpenTasks(accountId);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
       if (result.data.length === 0) return { kind: "text", text: "No open tasks — you're all caught up! 🎉" };
+      const now = await getAccountTimeZone(accountId);
       return {
         kind: "text",
         text: result.data
-          .map((t) => `• [${t.id.slice(0, 8)}] ${t.title}${t.dueAt ? ` (due ${t.dueAt})` : ""}`)
+          .map((t) => `• ${shortId(t.id)} ${t.title}${t.dueAt ? ` (due ${friendlyTime(t.dueAt, now)})` : ""}`)
           .join("\n"),
       };
     }
 
     if (lower.startsWith("done ")) {
       const idPrefix = text.slice(5).trim();
-      if (!idPrefix) return { kind: "text", text: "Please provide a task id, e.g. done a1b2c3d4" };
+      if (!idPrefix) return { kind: "text", text: "Please provide a task id, e.g. done a1b2c3d4 — use 'tasks' to see your task ids." };
       // We only stored an 8-char prefix in the UI; resolve via prefix match.
       const openTasks = await listOpenTasks(accountId, 50);
       if (!openTasks.ok) return { kind: "text", text: `⚠ ${openTasks.error}` };
@@ -262,7 +290,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       const result = await completeTask(accountId, match.id);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
       recordUndoableAction(accountId, { kind: "uncomplete_task", taskId: match.id });
-      return { kind: "text", text: 'Done! Nice work. Send "undo" within a few minutes to reopen it.' };
+      return { kind: "text", text: `Done! "${match.title}" marked complete. Nice work. Send "undo" to reopen it.` };
     }
 
     if (lower.startsWith("remind me ")) {
@@ -308,7 +336,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       const recurrenceNote = recurrence === "none" ? "" : ` (repeating ${recurrence})`;
       return {
         kind: "text",
-        text: `Got it! I'll remind you at ${when.toISOString()}${recurrenceNote}. Send "undo" within a few minutes to cancel it.`,
+        text: `Got it! I'll remind you ${friendlyTime(when.toISOString())}${recurrenceNote}. Send "undo" within a few minutes to cancel it.`,
       };
     }
 
@@ -319,7 +347,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       return {
         kind: "text",
         text: result.data
-          .map((r) => `• [${r.id.slice(0, 8)}] ${r.message} at ${r.remindAt}${r.recurrenceRule !== "none" ? ` (${r.recurrenceRule})` : ""}`)
+          .map((r) => `• ${shortId(r.id)} ${r.message} ${friendlyTime(r.remindAt)}${r.recurrenceRule !== "none" ? ` (${r.recurrenceRule})` : ""}`)
           .join("\n"),
       };
     }
@@ -333,7 +361,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       const durationMs = parseRelativeDurationMs(durationText);
       const validation = safeValidate(snoozeReminderSchema, { idPrefix, delayMs: durationMs ?? -1 });
       if (!validation.ok || durationMs === null) {
-        return { kind: "text", text: "Try: snooze a1b2c3d4 1h" };
+        return { kind: "text", text: "Try: snooze a1b2c3d4 1h — use 'reminders' to see your reminder ids." };
       }
 
       // Resolve the short id prefix shown in `reminders` output to a
@@ -351,12 +379,12 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
         reminderId: match.id,
         previousRemindAt: result.data.previousRemindAt,
       });
-      return { kind: "text", text: `Snoozed — now set for ${result.data.newRemindAt}. Send "undo" to revert.` };
+      return { kind: "text", text: `Snoozed — now set for ${friendlyTime(result.data.newRemindAt)}. Send "undo" to revert.` };
     }
 
     if (lower === "undo") {
       const action = takeUndoableAction(accountId);
-      if (!action) return { kind: "text", text: "Nothing to undo right now." };
+      if (!action) return { kind: "text", text: "Nothing to undo right now. Create a note, task, or reminder first." };
 
       switch (action.kind) {
         case "delete_note": {
@@ -382,7 +410,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
         case "restore_reminder_time": {
           const result = await restoreReminderTime(accountId, action.reminderId, action.previousRemindAt);
           if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
-          return { kind: "text", text: `Undone — reminder restored to ${action.previousRemindAt}.` };
+          return { kind: "text", text: `Undone — reminder restored to ${friendlyTime(action.previousRemindAt)}.` };
         }
         default:
           return { kind: "text", text: "Nothing to undo right now." };
@@ -562,7 +590,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       // unrecognized/failed AI outcome — never a silent dead end.
     }
 
-    return { kind: "text", text: `I didn't understand that. Send "help" to see what I can do.` };
+    return { kind: "text", text: `Not sure what that means. Try "help" to see what I can do, or just say something like "note hello world" or "task buy milk".` };
   } catch (err) {
     logError("handleCommand", err, { platform: cmd.platform });
     return { kind: "text", text: "Something went wrong on my end. Please try again in a moment." };
@@ -628,7 +656,7 @@ async function executeAiIntent(accountId: string, intent: AiIntent): Promise<str
       if (!result.ok) return `⚠ ${result.error}`;
 
       const recurrenceNote = validation.data.recurrence === "none" ? "" : ` (repeating ${validation.data.recurrence})`;
-      return `Got it — I'll remind you at ${validation.data.remindAt.toISOString()}${recurrenceNote}.`;
+      return `Got it! I'll remind you ${friendlyTime(validation.data.remindAt.toISOString())}${recurrenceNote}.`;
     }
     case "answer_question":
       return intent.answer;
