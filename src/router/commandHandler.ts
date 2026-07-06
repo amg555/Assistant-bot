@@ -18,6 +18,7 @@ import {
   snoozeReminder,
   restoreReminderTime,
   deleteReminder,
+  acknowledgeReminder,
 } from "../services/remindersService.js";
 import { renderActivityChart } from "../services/chartService.js";
 import { issueOAuthState, getNotionConnection, setNotionDatabaseId, disconnectNotion } from "../services/notionConnectionService.js";
@@ -88,6 +89,8 @@ const HELP_TEXT = [
   "⏰  Reminders",
   "  remind me <msg> in <10m|2h|1d> — one-time reminder",
   "  remind me <msg> at <9am> [every day|week|month] — clock-time reminder, optionally recurring",
+  "  alarm <msg> in <10m|2h> — important reminder, re-sent every 5min until acknowledged",
+  "  acknowledge <id> — stop an alarm from repeating",
   "  reminders — list pending reminders",
   "  snooze <id> <10m|2h|1d> — push a reminder back",
   "",
@@ -342,6 +345,58 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
         kind: "text",
         text: `Got it! I'll remind you ${friendlyTime(when.toISOString())}${recurrenceNote}. Send "undo" within a few minutes to cancel it.`,
       };
+    }
+
+    if (lower.startsWith("alarm ")) {
+      const rawFull = text.slice("alarm ".length);
+      const inMatch = rawFull.match(/\bin\s+(.+)$/i);
+      const atMatch = rawFull.match(/\bat\s+(.+)$/i);
+
+      let message: string;
+      let when: Date | null;
+
+      if (inMatch) {
+        message = rawFull.slice(0, inMatch.index).trim();
+        when = parseWhen(`in ${inMatch[1]!.trim()}`);
+      } else if (atMatch) {
+        message = rawFull.slice(0, atMatch.index).trim();
+        when = parseWhen(`at ${atMatch[1]!.trim()}`, await getAccountTimeZone(accountId));
+      } else {
+        return { kind: "text", text: "Try: alarm wake me up in 30m — or: alarm stand up at 2pm" };
+      }
+
+      if (!when) {
+        return { kind: "text", text: "I couldn't understand that time. Try formats like 10m, 2h, or 9am." };
+      }
+      if (!message) {
+        return { kind: "text", text: "What should I alarm you about? Try: alarm wake me up in 30m" };
+      }
+
+      const validation = safeValidate(createReminderSchema, { message, remindAt: when, recurrence: "none", isAlarm: true });
+      if (!validation.ok) return { kind: "text", text: `Hmm, couldn't schedule that: ${validation.error}` };
+
+      const result = await createReminder(accountId, validation.data);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      recordUndoableAction(accountId, { kind: "delete_reminder", reminderId: result.data.id });
+
+      return {
+        kind: "text",
+        text: `🔔 Alarm set! I'll remind you ${friendlyTime(when.toISOString())} and keep repeating until you send "acknowledge ${shortId(result.data.id)}".`,
+      };
+    }
+
+    if (lower.startsWith("acknowledge ")) {
+      const idPrefix = text.slice("acknowledge ".length).trim();
+      if (!idPrefix) return { kind: "text", text: "Provide the alarm id, e.g. acknowledge a1b2c3d4." };
+
+      const pending = await listPendingReminders(accountId, 50);
+      if (!pending.ok) return { kind: "text", text: `⚠ ${pending.error}` };
+      const match = pending.data.find((r) => r.id.startsWith(idPrefix));
+      if (!match) return { kind: "text", text: "Couldn't find a pending alarm with that id." };
+
+      const result = await acknowledgeReminder(accountId, match.id);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      return { kind: "text", text: "Alarm acknowledged. It won't repeat anymore." };
     }
 
     if (lower === "reminders") {

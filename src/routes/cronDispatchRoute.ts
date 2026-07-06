@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { verifyCronSecret } from "../middleware/verifyCronSecret.js";
-import { fetchDueReminders, markReminderSent, markReminderFailedAttempt } from "../services/remindersService.js";
+import { fetchDueReminders, markReminderSent, markReminderFailedAttempt, markAlarmDelivered } from "../services/remindersService.js";
 import { deliverToAccount } from "../lib/deliverToAccount.js";
 import { logError, logger } from "../lib/logger.js";
 
@@ -17,9 +17,14 @@ cronRouter.post("/internal/cron/dispatch", verifyCronSecret, async (_req, res) =
     let failed = 0;
 
     for (const reminder of dueResult.data) {
-      const delivered = await deliverToAccount(reminder.accountId, `⏰ Reminder: ${reminder.message}`);
+      const prefix = reminder.isAlarm ? "🔔 ALARM" : "⏰ Reminder";
+      const delivered = await deliverToAccount(reminder.accountId, `${prefix}: ${reminder.message}`);
       if (delivered) {
-        await markReminderSent(reminder.id, reminder.accountId, reminder.message, reminder.recurrenceRule, reminder.remindAt);
+        if (reminder.isAlarm) {
+          await markAlarmDelivered(reminder.id);
+        } else {
+          await markReminderSent(reminder.id, reminder.accountId, reminder.message, reminder.recurrenceRule, reminder.remindAt);
+        }
         sent += 1;
       } else {
         await markReminderFailedAttempt(reminder.id, reminder.deliveryAttempts, "No reachable platform identity or send failed");

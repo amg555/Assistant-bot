@@ -6,7 +6,8 @@ import { logError, logger } from "../../lib/logger.js";
 import { checkRateLimit } from "../../middleware/rateLimit.js";
 import { isGroqConfigured } from "../../config/env.js";
 import { isAiEnabledForAccount, resolveOrCreateAccount } from "../../services/accountService.js";
-import { transcribeAudio } from "../../services/aiService.js";
+import { transcribeAudio, transcribeImage } from "../../services/aiService.js";
+import { createNote } from "../../services/notesService.js";
 
 interface TelegramUpdate {
   message?: {
@@ -15,6 +16,7 @@ interface TelegramUpdate {
     text?: string;
     voice?: { file_id: string; mime_type?: string };
     audio?: { file_id: string; mime_type?: string };
+    photo?: { file_id: string; width: number; height: number }[];
   };
 }
 
@@ -28,7 +30,8 @@ telegramRouter.post("/webhook", verifyTelegramWebhook, async (req, res) => {
   const update = req.body as TelegramUpdate;
   const message = update.message;
   const voiceFileId = message?.voice?.file_id ?? message?.audio?.file_id;
-  if (!message?.from || (!message.text && !voiceFileId)) return;
+  const photoArray = message?.photo;
+  if (!message?.from || (!message.text && !voiceFileId && !photoArray)) return;
 
   const chatId = message.chat.id;
   const platformUserId = String(message.from.id);
@@ -49,6 +52,13 @@ telegramRouter.post("/webhook", verifyTelegramWebhook, async (req, res) => {
       inputText = transcribed.text;
       resolvedAccountId = transcribed.accountId;
       await sendTelegramMessage(chatId, `Got it — you said: "${inputText.slice(0, 200)}"`);
+    }
+
+    if (!inputText && photoArray && photoArray.length > 0) {
+      const ocrResult = await processPhotoMessage(platformUserId, displayName, chatId, photoArray);
+      if (ocrResult === null) return;
+      inputText = ocrResult.text;
+      resolvedAccountId = ocrResult.accountId;
     }
 
     if (!inputText) return;
@@ -124,5 +134,60 @@ async function transcribeVoiceMessage(
   }
 
   return { text: transcription.text, accountId };
+}
+
+/**
+ * Handles a photo message: resolves the account, checks the AI opt-in
+ * gate (same as voice/text AI), downloads the largest photo from
+ * Telegram, sends it to Groq vision, saves the result as a note, and
+ * returns the transcribed text for the normal command pipeline. Returns
+ * null if a terminal reply was already sent.
+ */
+async function processPhotoMessage(
+  platformUserId: string,
+  displayName: string | undefined,
+  chatId: number,
+  photoArray: { file_id: string; width: number; height: number }[]
+): Promise<{ text: string; accountId: string } | null> {
+  if (!isGroqConfigured) {
+    await sendTelegramMessage(chatId, "Photo OCR needs AI features enabled on this server.");
+    return null;
+  }
+
+  const accountResult = await resolveOrCreateAccount("telegram", platformUserId, displayName);
+  if (!accountResult.ok) {
+    await sendTelegramMessage(chatId, "Sorry — I couldn't reach your account storage.");
+    return null;
+  }
+  const accountId = accountResult.data.accountId;
+
+  if (!(await isAiEnabledForAccount(accountId))) {
+    await sendTelegramMessage(chatId, 'Photo OCR requires AI to be on. Send "ai on" first.');
+    return null;
+  }
+
+  // Telegram sends multiple resolutions; pick the largest.
+  const best = photoArray.reduce((a, b) => (a.width * a.height > b.width * b.height ? a : b));
+  const imageBuffer = await downloadTelegramFile(best.file_id);
+  if (!imageBuffer) {
+    await sendTelegramMessage(chatId, "I couldn't download that photo. Could you try again?");
+    return null;
+  }
+
+  const result = await transcribeImage(accountId, imageBuffer, "image/jpeg");
+  if (!result.ok) {
+    const reason =
+      result.reason === "rate_limited"
+        ? "You've sent a lot of images recently — please try again in a bit."
+        : "I couldn't process that image. Please try again.";
+    await sendTelegramMessage(chatId, reason);
+    return null;
+  }
+
+  // Save as a note silently — one reply, no follow-up.
+  await createNote(accountId, { title: "Photo OCR", body: result.text, tags: ["ocr"] });
+  await sendTelegramMessage(chatId, `📸 I read this from your photo and saved it as a note:\n\n${result.text.slice(0, 500)}`);
+
+  return { text: result.text, accountId };
 }
 

@@ -186,6 +186,13 @@ create table if not exists public.reminders (
   status             text not null default 'pending' check (status in ('pending', 'sent', 'failed', 'cancelled')),
   delivery_attempts  int not null default 0,
   last_error         text,
+  -- When true, the dispatcher re-sends this reminder every few minutes
+  -- until the user explicitly acknowledges it. Use for important/time-
+  -- sensitive alerts that must not be missed.
+  is_alarm           boolean not null default false,
+  -- Set by the dispatcher on each alarm delivery, used as a cooldown
+  -- guard so the same alarm isn't re-sent on every cron tick.
+  last_alarm_sent_at timestamptz,
   created_at         timestamptz not null default now()
 );
 

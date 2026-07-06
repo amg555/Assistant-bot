@@ -26,6 +26,18 @@ begin
     alter table public.accounts add column webhook_secret text;
   end if;
 end $$;
+
+-- Add alarm columns to reminders table.
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'reminders' and column_name = 'is_alarm'
+  ) then
+    alter table public.reminders add column is_alarm boolean not null default false;
+    alter table public.reminders add column last_alarm_sent_at timestamptz;
+  end if;
+end $$;
 `;
 
 export async function runMigrations(): Promise<void> {

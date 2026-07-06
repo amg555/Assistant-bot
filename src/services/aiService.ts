@@ -384,3 +384,54 @@ export async function summarizeDigest(accountId: string, rawDigestText: string):
     return { ok: false, reason: "provider_error" };
   }
 }
+
+export type ImageResult =
+  | { ok: true; text: string }
+  | { ok: false; reason: "not_configured" | "rate_limited" | "provider_error" };
+
+/**
+ * Sends an image to Groq's vision model (llama-3.2-11b-vision-preview)
+ * and returns the textual content extracted from it. Uses the same two-
+ * layer opt-in gate as every other AI feature.
+ */
+export async function transcribeImage(accountId: string, imageBuffer: Buffer, mimeType: string): Promise<ImageResult> {
+  if (!groqClient) {
+    return { ok: false, reason: "not_configured" };
+  }
+
+  if (!checkRateLimit(`groq-image:${accountId}`, env.GROQ_MAX_CALLS_PER_HOUR, 60 * 60 * 1000)) {
+    logger.warn({ context: "transcribeImage", accountId }, "groq_rate_limit_exceeded");
+    return { ok: false, reason: "rate_limited" };
+  }
+
+  try {
+    const base64 = imageBuffer.toString("base64");
+    const dataUrl = `data:${mimeType};base64,${base64}`;
+
+    const completion = await groqClient.chat.completions.create({
+      model: "llama-3.2-11b-vision-preview",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Extract all the text content from this image accurately. If it's a document, whiteboard, or handwritten note, transcribe it faithfully. If it's a photo with no text, describe what you see briefly.",
+            },
+            { type: "image_url", image_url: { url: dataUrl } },
+          ],
+        },
+      ],
+      temperature: 0.2,
+      max_tokens: 1000,
+    });
+
+    const text = completion.choices[0]?.message?.content?.trim();
+    if (!text) return { ok: false, reason: "provider_error" };
+
+    return { ok: true, text };
+  } catch (err) {
+    logError("transcribeImage", err, { accountId });
+    return { ok: false, reason: "provider_error" };
+  }
+}
