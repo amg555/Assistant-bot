@@ -59,7 +59,7 @@ const TOOLS: Groq.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "create_note",
-      description: "Save a note when the user wants to write something down for later.",
+      description: "Save a note when the user wants to write something down for later, or tells you personal information about themselves or about you that you should remember.",
       parameters: {
         type: "object",
         properties: {
