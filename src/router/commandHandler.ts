@@ -660,7 +660,9 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
               await executeAiIntent(accountId, intent);
             }
 
-            const replyText = chatIntent
+            const rawChatText = chatIntent?.text ?? "";
+            const isToolDescription = /\b(save|saved|note from|your note|a note|task added|reminder set)\b/i.test(rawChatText) && toolIntents.length > 0;
+            const replyText = chatIntent && !isToolDescription
               ? chatIntent.text
               : (await Promise.all(toolIntents.map((i) => executeAiIntent(accountId, i)))).join("\n");
 
