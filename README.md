@@ -10,6 +10,8 @@
 
 **Your personal assistant, wherever you chat.** Save notes, track tasks, set reminders, and search everything — from Telegram or Discord. No app to install, no subscription fee. Runs on Render's free tier.
 
+> 👋 **New here?** Read the **[User Guide](docs/user-guide.md)** for a gentle walkthrough of every command with examples.
+
 ```
 You:        remind me to call mom tomorrow at 9am
 Bot:        Got it! I'll remind you in 20h.
@@ -40,6 +42,18 @@ Bot:        Got it — you said: add milk and eggs to shopping list. Saved your 
 | 🔗 **Platform Linking** | Connect Telegram + Discord to one account. |
 | 🔄 **Notion Sync** | Two-way OAuth sync with your Notion workspace. |
 | 📱 **Cross-Platform** | Telegram (live), Discord (live), WhatsApp (scaffolded). |
+
+---
+
+## Quick Links
+
+| If you are... | Start here |
+|---|---|
+| 🧑 A **user** who wants to use the bot | [`docs/user-guide.md`](docs/user-guide.md) — full command reference |
+| 🛠 An **operator** deploying your own instance | [`docs/operator-runbook.md`](docs/operator-runbook.md) — step-by-step setup |
+| 🔗 Connecting **external services** (n8n, IFTTT) | [`docs/webhook-inbox.md`](docs/webhook-inbox.md) — webhook integration |
+| 🔄 Setting up **Notion sync** | [`docs/notion-sync.md`](docs/notion-sync.md) — OAuth + two-way sync |
+| 🐳 Running with **Docker** | [`docs/docker.md`](docs/docker.md) — container deployment |
 
 ---
 
