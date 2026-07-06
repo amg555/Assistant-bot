@@ -1,0 +1,25 @@
+# Never let a real .env file be copied into an image layer — secrets
+# must only ever reach the container via runtime environment variables
+# (docker run --env-file, Render's environment tab, docker-compose
+# env_file, etc.), never baked into a layer where `docker history` or
+# a leaked image could expose them.
+.env
+.env.*
+!.env.example
+
+node_modules
+dist
+coverage
+.git
+.github
+
+# Test files and docs aren't needed inside the runtime image.
+tests
+docs
+*.md
+
+# Editor/OS cruft
+.vscode
+.idea
+.DS_Store
+*.log

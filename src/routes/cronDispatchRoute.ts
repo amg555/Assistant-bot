@@ -1,0 +1,37 @@
+import { Router } from "express";
+import { verifyCronSecret } from "../middleware/verifyCronSecret.js";
+import { fetchDueReminders, markReminderSent, markReminderFailedAttempt } from "../services/remindersService.js";
+import { deliverToAccount } from "../lib/deliverToAccount.js";
+import { logError, logger } from "../lib/logger.js";
+
+export const cronRouter = Router();
+
+cronRouter.post("/internal/cron/dispatch", verifyCronSecret, async (_req, res) => {
+  try {
+    const dueResult = await fetchDueReminders();
+    if (!dueResult.ok) {
+      return res.status(500).json({ error: dueResult.error });
+    }
+
+    let sent = 0;
+    let failed = 0;
+
+    for (const reminder of dueResult.data) {
+      const delivered = await deliverToAccount(reminder.accountId, `⏰ Reminder: ${reminder.message}`);
+      if (delivered) {
+        await markReminderSent(reminder.id, reminder.accountId, reminder.message, reminder.recurrenceRule, reminder.remindAt);
+        sent += 1;
+      } else {
+        await markReminderFailedAttempt(reminder.id, reminder.deliveryAttempts, "No reachable platform identity or send failed");
+        failed += 1;
+      }
+    }
+
+    logger.info({ context: "cronDispatchRoute", sent, failed, total: dueResult.data.length }, "reminder_dispatch_cycle_complete");
+    return res.status(200).json({ sent, failed, total: dueResult.data.length });
+  } catch (err) {
+    logError("cronDispatchRoute.dispatch", err);
+    return res.status(500).json({ error: "internal_error" });
+  }
+});
+

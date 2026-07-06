@@ -1,0 +1,15 @@
+# Convenience for local development/testing of the Docker image itself
+# — this is NOT how you deploy to Render (Render builds the Dockerfile
+# directly from your repo; see docs/docker.md). This file exists so you
+# can run `docker compose up` locally to sanity-check the containerized
+# server against your real .env before pushing.
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "10000:10000"
+    env_file:
+      - .env
+    restart: unless-stopped

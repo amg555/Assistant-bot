@@ -1,0 +1,617 @@
+import {
+  resolveOrCreateAccount,
+  issueLinkCode,
+  consumeLinkCode,
+  isAiEnabledForAccount,
+  setAiEnabledForAccount,
+  getAccountTimeZone,
+  setAccountTimeZone,
+  setDigestEnabled,
+  type Platform,
+} from "../services/accountService.js";
+import { createNote, listRecentNotes, deleteNote } from "../services/notesService.js";
+import { createTask, completeTask, listOpenTasks, deleteTask, uncompleteTask } from "../services/tasksService.js";
+import {
+  createReminder,
+  listPendingReminders,
+  snoozeReminder,
+  restoreReminderTime,
+  deleteReminder,
+} from "../services/remindersService.js";
+import { renderActivityChart } from "../services/chartService.js";
+import { issueOAuthState, getNotionConnection, setNotionDatabaseId, disconnectNotion } from "../services/notionConnectionService.js";
+import { buildNotionAuthorizeUrl } from "../services/notionClient.js";
+import { pushNoteToNotion } from "../services/notionSyncService.js";
+import { embedNoteInBackground } from "../services/embeddingSyncService.js";
+import {
+  createNoteSchema,
+  createTaskSchema,
+  createReminderSchema,
+  linkCodeConsumeSchema,
+  chartRequestSchema,
+  setTimezoneSchema,
+  setDigestSchema,
+  snoozeReminderSchema,
+  safeValidate,
+} from "../validation/schemas.js";
+import { parseWhen, extractRecurrence, parseHourOfDay, parseRelativeDurationMs } from "../lib/parseWhen.js";
+import { checkRateLimit } from "../middleware/rateLimit.js";
+import { recordUndoableAction, takeUndoableAction } from "../lib/undoStore.js";
+import { logError } from "../lib/logger.js";
+import { isGroqConfigured, isNotionConfigured, isSemanticSearchConfigured, env } from "../config/env.js";
+import { interpretMessage, answerQuestionWithRag, type AiIntent } from "../services/aiService.js";
+
+/**
+ * A platform-agnostic reply: adapters translate this into whatever
+ * their SDK needs (Telegram sendMessage, Discord interaction response,
+ * WhatsApp message send). Keeping this shape simple means adding a
+ * fourth platform later never touches business logic.
+ */
+export type BotReply =
+  | { kind: "text"; text: string }
+  | { kind: "image"; caption: string; buffer: Buffer };
+
+export interface IncomingCommand {
+  platform: Platform;
+  platformUserId: string;
+  displayName?: string;
+  text: string;
+  /** Optional pre-resolved account id. Callers that already resolved
+   * the account for a prior step in the same request (e.g. the voice
+   * transcription path, which must resolve the account early to check
+   * the AI opt-in gate before transcribing) can pass it here to avoid a
+   * second redundant Supabase round-trip. When omitted, handleCommand
+   * resolves it itself exactly as before. */
+  resolvedAccountId?: string;
+}
+
+const HELP_TEXT = [
+  "Here's what I can do:",
+  "• note <title> | <body> — save a note",
+  "• notes — show your recent notes",
+  "• task <title> [by <when>] — add a task",
+  "• tasks — list open tasks",
+  "• done <task-id> — mark a task complete",
+  "• remind me <message> in <10m|2h|1d> — schedule a one-time reminder",
+  "• remind me <message> at <9am|21:30> [every day|every week|every month] — schedule by clock time in your own timezone, optionally recurring",
+  "• reminders — list your pending reminders (with ids)",
+  "• snooze <reminder-id> <10m|2h|1d> — push a reminder back",
+  "• undo — revert your last note/task/reminder action (works for a few minutes after)",
+  "• timezone <IANA name, e.g. Asia/Kolkata> — set your timezone (default UTC) so clock-time reminders land correctly",
+  "• chart [7d|30d] [tasks|notes|reminders|all] — see your activity",
+  "• link — get a code to connect another platform to this account",
+  "• connect <code> — use a code from another platform to merge accounts",
+  "• ask <question> — ask about your own notes (needs 'ai on')",
+  "• ai on / ai off — opt in or out of AI-assisted natural language (off by default; nothing is sent to an AI provider until you turn this on)",
+  "• (Telegram/WhatsApp) send a voice message — transcribed and understood the same as typed text (needs 'ai on')",
+  "• digest on [at <hour, e.g. 8am>] / digest off — get a daily morning summary of tasks due, reminders, and notes so nothing slips through (off by default; delivered to Telegram/WhatsApp)",
+  "• notion connect — get a link to connect your own Notion workspace",
+  "• notion database <id> — choose which Notion database your notes sync to",
+  "• notion status — check your Notion connection",
+  "• notion disconnect — stop syncing and remove your stored Notion access",
+].join("\n");
+
+export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
+  let accountId = cmd.resolvedAccountId;
+  if (!accountId) {
+    const accountResult = await resolveOrCreateAccount(cmd.platform, cmd.platformUserId, cmd.displayName);
+    if (!accountResult.ok) {
+      return { kind: "text", text: "Sorry — I couldn't reach your account storage. Please try again in a moment." };
+    }
+    accountId = accountResult.data.accountId;
+  }
+  const text = cmd.text.trim();
+  const lower = text.toLowerCase();
+
+  try {
+    if (lower === "/start" || lower === "help" || lower === "/help") {
+      return { kind: "text", text: HELP_TEXT };
+    }
+
+    if (lower.startsWith("note ")) {
+      const raw = text.slice(5);
+      const [titlePart, ...bodyParts] = raw.split("|");
+      const validation = safeValidate(createNoteSchema, {
+        title: titlePart?.trim() ?? "",
+        body: bodyParts.join("|").trim(),
+        tags: [],
+      });
+      if (!validation.ok) return { kind: "text", text: `Couldn't save that note: ${validation.error}` };
+
+      const result = await createNote(accountId, validation.data);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      recordUndoableAction(accountId, { kind: "delete_note", noteId: result.data.id });
+      // Fire-and-forget: pushing to Notion is a best-effort side effect
+      // and must never block or fail the actual note save, which is
+      // the primary action the user asked for. Errors are logged inside
+      // pushNoteToNotion itself, never thrown here.
+      void pushNoteToNotion(accountId, result.data.id);
+
+      // Embedding a note sends its content to a third party (Jina) —
+      // exactly as privacy-sensitive as the Groq-based AI features, so
+      // it's gated behind the SAME "ai on" opt-in, not just the
+      // server-level isSemanticSearchConfigured flag. A user who never
+      // opted into AI features must never have their notes silently
+      // sent anywhere just because the operator configured a Jina key.
+      if (isSemanticSearchConfigured) {
+        void isAiEnabledForAccount(accountId).then((enabled) => {
+          if (enabled) void embedNoteInBackground(accountId, result.data.id);
+        });
+      }
+
+      return { kind: "text", text: 'Saved your note. Send "undo" within a few minutes to remove it.' };
+    }
+
+    if (lower === "notes") {
+      const result = await listRecentNotes(accountId);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      if (result.data.length === 0) return { kind: "text", text: "You don't have any notes yet." };
+      return {
+        kind: "text",
+        text: result.data.map((n) => `• ${n.title}`).join("\n"),
+      };
+    }
+
+    if (lower.startsWith("timezone ")) {
+      const tz = text.slice(9).trim();
+      const validation = safeValidate(setTimezoneSchema, { timeZone: tz });
+      if (!validation.ok) return { kind: "text", text: `⚠ ${validation.error}` };
+
+      const result = await setAccountTimeZone(accountId, validation.data.timeZone);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      return { kind: "text", text: `Timezone set to ${validation.data.timeZone}. Clock-time reminders will now use this.` };
+    }
+
+    if (lower === "digest off") {
+      const result = await setDigestEnabled(accountId, false);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      return { kind: "text", text: "Daily digest turned off." };
+    }
+
+    if (lower.startsWith("digest on")) {
+      const atMatch = text.match(/\bat\s+(.+)$/i);
+      let hour: number | undefined;
+      if (atMatch) {
+        const parsedHour = parseHourOfDay(atMatch[1]!.trim());
+        if (parsedHour === null) {
+          return { kind: "text", text: "I couldn't understand that hour. Try: digest on at 8am" };
+        }
+        hour = parsedHour;
+      }
+
+      const validation = safeValidate(setDigestSchema, { enabled: true, hour });
+      if (!validation.ok) return { kind: "text", text: `⚠ ${validation.error}` };
+
+      const result = await setDigestEnabled(accountId, true, validation.data.hour);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+
+      const tz = await getAccountTimeZone(accountId);
+      const hourLabel = validation.data.hour !== undefined ? `${validation.data.hour}:00` : "8:00 (default)";
+      return {
+        kind: "text",
+        text: `Daily digest turned on — you'll get a summary around ${hourLabel} in your timezone (${tz}). It's delivered via Telegram/WhatsApp.`,
+      };
+    }
+
+    if (lower.startsWith("task ")) {
+      const raw = text.slice(5);
+      const byMatch = raw.match(/\bby\s+(.+)$/i);
+      const title = byMatch ? raw.slice(0, byMatch.index).trim() : raw.trim();
+      const dueAt = byMatch ? parseWhen(byMatch[1]!.trim(), await getAccountTimeZone(accountId)) : undefined;
+
+      const validation = safeValidate(createTaskSchema, {
+        title,
+        dueAt: dueAt ?? undefined,
+        priority: "normal",
+      });
+      if (!validation.ok) return { kind: "text", text: `Couldn't save that task: ${validation.error}` };
+
+      const result = await createTask(accountId, validation.data);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      recordUndoableAction(accountId, { kind: "delete_task", taskId: result.data.id });
+      return { kind: "text", text: 'Task added. Send "undo" within a few minutes to remove it.' };
+    }
+
+    if (lower === "tasks") {
+      const result = await listOpenTasks(accountId);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      if (result.data.length === 0) return { kind: "text", text: "No open tasks. You're all caught up." };
+      return {
+        kind: "text",
+        text: result.data
+          .map((t) => `• [${t.id.slice(0, 8)}] ${t.title}${t.dueAt ? ` (due ${t.dueAt})` : ""}`)
+          .join("\n"),
+      };
+    }
+
+    if (lower.startsWith("done ")) {
+      const idPrefix = text.slice(5).trim();
+      if (!idPrefix) return { kind: "text", text: "Please provide a task id, e.g. done a1b2c3d4" };
+      // We only stored an 8-char prefix in the UI; resolve via prefix match.
+      const openTasks = await listOpenTasks(accountId, 50);
+      if (!openTasks.ok) return { kind: "text", text: `⚠ ${openTasks.error}` };
+      const match = openTasks.data.find((t) => t.id.startsWith(idPrefix));
+      if (!match) return { kind: "text", text: "Couldn't find an open task with that id." };
+
+      const result = await completeTask(accountId, match.id);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      recordUndoableAction(accountId, { kind: "uncomplete_task", taskId: match.id });
+      return { kind: "text", text: 'Marked as done. Nice work. Send "undo" within a few minutes to reopen it.' };
+    }
+
+    if (lower.startsWith("remind me ")) {
+      const rawFull = text.slice("remind me ".length);
+      const { recurrence, remaining } = extractRecurrence(rawFull);
+
+      const inMatch = remaining.match(/\bin\s+(.+)$/i);
+      const atMatch = remaining.match(/\bat\s+(.+)$/i);
+
+      let message: string;
+      let when: Date | null;
+
+      if (inMatch) {
+        message = remaining.slice(0, inMatch.index).trim();
+        when = parseWhen(`in ${inMatch[1]!.trim()}`);
+      } else if (atMatch) {
+        message = remaining.slice(0, atMatch.index).trim();
+        when = parseWhen(`at ${atMatch[1]!.trim()}`, await getAccountTimeZone(accountId));
+      } else {
+        return {
+          kind: "text",
+          text: "Try: remind me call mom in 2h — or: remind me stretch at 9am every day",
+        };
+      }
+
+      if (!when) {
+        return {
+          kind: "text",
+          text: "I couldn't understand that time. Try formats like 10m, 2h, 1d, or a clock time like 9am.",
+        };
+      }
+      if (!message) {
+        return { kind: "text", text: "What should I remind you about? Try: remind me call mom in 2h" };
+      }
+
+      const validation = safeValidate(createReminderSchema, { message, remindAt: when, recurrence });
+      if (!validation.ok) return { kind: "text", text: `Couldn't schedule that: ${validation.error}` };
+
+      const result = await createReminder(accountId, validation.data);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      recordUndoableAction(accountId, { kind: "delete_reminder", reminderId: result.data.id });
+
+      const recurrenceNote = recurrence === "none" ? "" : ` (repeating ${recurrence})`;
+      return {
+        kind: "text",
+        text: `Got it — I'll remind you at ${when.toISOString()}${recurrenceNote}. Send "undo" within a few minutes to cancel it.`,
+      };
+    }
+
+    if (lower === "reminders") {
+      const result = await listPendingReminders(accountId);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      if (result.data.length === 0) return { kind: "text", text: "You don't have any pending reminders." };
+      return {
+        kind: "text",
+        text: result.data
+          .map((r) => `• [${r.id.slice(0, 8)}] ${r.message} at ${r.remindAt}${r.recurrenceRule !== "none" ? ` (${r.recurrenceRule})` : ""}`)
+          .join("\n"),
+      };
+    }
+
+    if (lower.startsWith("snooze ")) {
+      const rest = text.slice(7).trim();
+      const parts = rest.split(/\s+/);
+      const idPrefix = parts[0] ?? "";
+      const durationText = parts.slice(1).join(" ");
+
+      const durationMs = parseRelativeDurationMs(durationText);
+      const validation = safeValidate(snoozeReminderSchema, { idPrefix, delayMs: durationMs ?? -1 });
+      if (!validation.ok || durationMs === null) {
+        return { kind: "text", text: "Try: snooze a1b2c3d4 1h" };
+      }
+
+      // Resolve the short id prefix shown in `reminders` output to a
+      // full row, same pattern as the `done <task-id>` command.
+      const pending = await listPendingReminders(accountId, 50);
+      if (!pending.ok) return { kind: "text", text: `⚠ ${pending.error}` };
+      const match = pending.data.find((r) => r.id.startsWith(validation.data.idPrefix));
+      if (!match) return { kind: "text", text: "Couldn't find a pending reminder with that id." };
+
+      const result = await snoozeReminder(accountId, match.id, validation.data.delayMs);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+
+      recordUndoableAction(accountId, {
+        kind: "restore_reminder_time",
+        reminderId: match.id,
+        previousRemindAt: result.data.previousRemindAt,
+      });
+      return { kind: "text", text: `Snoozed — now set for ${result.data.newRemindAt}. Send "undo" to revert.` };
+    }
+
+    if (lower === "undo") {
+      const action = takeUndoableAction(accountId);
+      if (!action) return { kind: "text", text: "Nothing to undo right now." };
+
+      switch (action.kind) {
+        case "delete_note": {
+          const result = await deleteNote(accountId, action.noteId);
+          if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+          return { kind: "text", text: "Undone — that note was removed." };
+        }
+        case "delete_task": {
+          const result = await deleteTask(accountId, action.taskId);
+          if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+          return { kind: "text", text: "Undone — that task was removed." };
+        }
+        case "delete_reminder": {
+          const result = await deleteReminder(accountId, action.reminderId);
+          if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+          return { kind: "text", text: "Undone — that reminder was cancelled." };
+        }
+        case "uncomplete_task": {
+          const result = await uncompleteTask(accountId, action.taskId);
+          if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+          return { kind: "text", text: "Undone — that task is open again." };
+        }
+        case "restore_reminder_time": {
+          const result = await restoreReminderTime(accountId, action.reminderId, action.previousRemindAt);
+          if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+          return { kind: "text", text: `Undone — reminder restored to ${action.previousRemindAt}.` };
+        }
+        default:
+          return { kind: "text", text: "Nothing to undo right now." };
+      }
+    }
+
+    if (lower.startsWith("chart")) {
+      const parts = lower.split(/\s+/).slice(1);
+      const validation = safeValidate(chartRequestSchema, {
+        range: parts.find((p) => p === "7d" || p === "30d") ?? "7d",
+        kind: parts.find((p) => ["tasks", "notes", "reminders", "all"].includes(p)) ?? "all",
+      });
+      if (!validation.ok) return { kind: "text", text: `⚠ ${validation.error}` };
+
+      const result = await renderActivityChart(accountId, validation.data.range, validation.data.kind);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      return { kind: "image", caption: `Your activity — last ${validation.data.range}`, buffer: result.data };
+    }
+
+    if (lower === "link") {
+      if (!checkRateLimit(`link-code:${accountId}`, 3, 60 * 60 * 1000)) {
+        return { kind: "text", text: "Too many link codes requested. Please try again in an hour." };
+      }
+      const result = await issueLinkCode(accountId);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      return {
+        kind: "text",
+        text: `Your link code is ${result.data.code} (expires in a few minutes). On your other platform, send: connect ${result.data.code}`,
+      };
+    }
+
+    if (lower.startsWith("connect ")) {
+      const code = text.slice(8).trim().toUpperCase();
+      const validation = safeValidate(linkCodeConsumeSchema, {
+        code,
+        platform: cmd.platform,
+        platformUserId: cmd.platformUserId,
+        displayName: cmd.displayName,
+      });
+      if (!validation.ok) return { kind: "text", text: `⚠ ${validation.error}` };
+
+      const result = await consumeLinkCode(
+        validation.data.code,
+        validation.data.platform,
+        validation.data.platformUserId,
+        validation.data.displayName
+      );
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      return { kind: "text", text: "Linked! This platform now shares the same notes, tasks, and reminders." };
+    }
+
+    if (lower === "ai on") {
+      if (!isGroqConfigured) {
+        return { kind: "text", text: "AI features aren't configured on this server yet. Ask the operator to set GROQ_API_KEY." };
+      }
+      const result = await setAiEnabledForAccount(accountId, true);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      return {
+        kind: "text",
+        text: "AI-assisted replies are now ON. From now on, your messages and small note excerpts you ask about may be sent to Groq's API to help understand you. Send \"ai off\" anytime to stop this.",
+      };
+    }
+
+    if (lower === "ai off") {
+      const result = await setAiEnabledForAccount(accountId, false);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      return { kind: "text", text: "AI-assisted replies are now OFF. Nothing further is sent to any AI provider." };
+    }
+
+    if (lower === "notion connect") {
+      if (!isNotionConfigured) {
+        return { kind: "text", text: "Notion sync isn't configured on this server yet." };
+      }
+      if (!checkRateLimit(`notion-connect:${accountId}`, 5, 60 * 60 * 1000)) {
+        return { kind: "text", text: "Too many connection attempts. Please try again in an hour." };
+      }
+
+      const stateResult = await issueOAuthState(accountId);
+      if (!stateResult.ok) return { kind: "text", text: `⚠ ${stateResult.error}` };
+
+      const redirectUri = `${env.PUBLIC_BASE_URL.replace(/\/$/, "")}/oauth/notion/callback`;
+      const url = buildNotionAuthorizeUrl(env.NOTION_OAUTH_CLIENT_ID, redirectUri, stateResult.data.state);
+
+      return {
+        kind: "text",
+        text: `Open this link to connect your Notion workspace (expires in 10 minutes):\n${url}\n\nAfter approving, come back and send: notion database <the database id you want to sync to>`,
+      };
+    }
+
+    if (lower.startsWith("notion database ")) {
+      const databaseId = text.slice(17).trim();
+      if (!databaseId) return { kind: "text", text: "Try: notion database <database id>" };
+
+      const connectionResult = await getNotionConnection(accountId);
+      if (!connectionResult.ok) return { kind: "text", text: `⚠ ${connectionResult.error}` };
+      if (!connectionResult.data) {
+        return { kind: "text", text: 'You need to connect Notion first — send "notion connect".' };
+      }
+
+      const result = await setNotionDatabaseId(accountId, databaseId);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      return { kind: "text", text: "Notion database set. New notes will now sync there automatically." };
+    }
+
+    if (lower === "notion status") {
+      if (!isNotionConfigured) {
+        return { kind: "text", text: "Notion sync isn't configured on this server yet." };
+      }
+      const connectionResult = await getNotionConnection(accountId);
+      if (!connectionResult.ok) return { kind: "text", text: `⚠ ${connectionResult.error}` };
+      if (!connectionResult.data) {
+        return { kind: "text", text: 'Not connected to Notion. Send "notion connect" to get started.' };
+      }
+      const c = connectionResult.data;
+      return {
+        kind: "text",
+        text: `Connected to Notion workspace: ${c.workspaceName ?? c.workspaceId}\nDatabase: ${c.databaseId ?? "(not set — send: notion database <id>)"}`,
+      };
+    }
+
+    if (lower === "notion disconnect") {
+      const result = await disconnectNotion(accountId);
+      if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
+      return { kind: "text", text: "Disconnected. Your Notion access token has been removed from our storage. Existing notes are unaffected." };
+    }
+
+    if (lower.startsWith("ask ")) {
+      const question = text.slice(4).trim();
+      if (!question) return { kind: "text", text: "Try: ask what did I write about the budget?" };
+
+      if (!isGroqConfigured) return { kind: "text", text: "AI features aren't configured on this server yet." };
+      if (!(await isAiEnabledForAccount(accountId))) {
+        return { kind: "text", text: "AI is off for your account. Send \"ai on\" first if you'd like to use this." };
+      }
+
+      const result = await answerQuestionWithRag(accountId, question);
+      if (!result.ok) {
+        return { kind: "text", text: "I couldn't reach the AI service just now. Please try again shortly." };
+      }
+      const firstIntent = result.intents[0];
+      if (firstIntent?.type === "answer_question") {
+        return { kind: "text", text: firstIntent.answer };
+      }
+      return { kind: "text", text: "I don't have enough information in your notes to answer that." };
+    }
+
+    // Natural-language fallback: only reached when no rigid command
+    // syntax above matched, and only when the account has explicitly
+    // opted in. This never bypasses validation — every intent Groq
+    // proposes is re-validated through the same schemas as manual
+    // commands before touching the database (see aiService.ts).
+    if (isGroqConfigured && (await isAiEnabledForAccount(accountId))) {
+      const aiResult = await interpretMessage(accountId, text, new Date().toISOString());
+
+      if (aiResult.ok) {
+        // A single message can describe multiple distinct items (e.g.
+        // "remind me to call mom and also buy milk") — interpretMessage
+        // returns one intent per distinct item, and each is executed
+        // and validated independently here, in order. One item failing
+        // validation does not abort the others; each gets its own
+        // outcome line in the combined reply, so the user can see
+        // exactly what did and didn't happen.
+        const recognizedIntents = aiResult.intents.filter((i) => i.type !== "unrecognized");
+        if (recognizedIntents.length > 0) {
+          const outcomeLines: string[] = [];
+          for (const intent of recognizedIntents) {
+            outcomeLines.push(await executeAiIntent(accountId, intent));
+          }
+          return { kind: "text", text: outcomeLines.join("\n") };
+        }
+        // Every intent came back "unrecognized" — fall through to the
+        // generic help message below, same as the pre-multi-intent
+        // behavior, instead of showing a per-item "didn't understand"
+        // line for what is really just one failed message overall.
+      }
+      // Falls through to the generic help message below on any
+      // unrecognized/failed AI outcome — never a silent dead end.
+    }
+
+    return { kind: "text", text: `I didn't understand that. Send "help" to see what I can do.` };
+  } catch (err) {
+    logError("handleCommand", err, { platform: cmd.platform });
+    return { kind: "text", text: "Something went wrong on my end. Please try again shortly." };
+  }
+}
+
+/**
+ * Executes a single AI-proposed intent and returns one plain-text
+ * outcome line. Extracted out of handleCommand's natural-language
+ * fallback so a multi-item request (see interpretMessage's
+ * "distinct items" handling) can call this once per item without
+ * duplicating the validate-then-mutate logic per intent type.
+ *
+ * Every branch still re-validates through the exact same Zod schemas
+ * used by manually typed commands before touching any service function
+ * — this function does not weaken that guarantee, it only changes how
+ * many times it's invoked per incoming message.
+ */
+async function executeAiIntent(accountId: string, intent: AiIntent): Promise<string> {
+  switch (intent.type) {
+    case "create_note": {
+      const validation = safeValidate(createNoteSchema, {
+        title: intent.title,
+        body: intent.body,
+        tags: [],
+      });
+      if (!validation.ok) return `Couldn't save that note: ${validation.error}`;
+
+      const result = await createNote(accountId, validation.data);
+      if (!result.ok) return `⚠ ${result.error}`;
+
+      // This function is only ever reached from the natural-language
+      // fallback, which already required isAiEnabledForAccount to be
+      // true before calling interpretMessage — so embedding here
+      // doesn't need a second opt-in check; the user already consented
+      // to AI processing of their notes by reaching this path.
+      if (isSemanticSearchConfigured) void embedNoteInBackground(accountId, result.data.id);
+
+      return `Saved your note: "${validation.data.title}".`;
+    }
+    case "create_task": {
+      const validation = safeValidate(createTaskSchema, {
+        title: intent.title,
+        dueAt: intent.dueAt ? new Date(intent.dueAt) : undefined,
+        priority: "normal",
+      });
+      if (!validation.ok) return `Couldn't save that task: ${validation.error}`;
+
+      const result = await createTask(accountId, validation.data);
+      if (!result.ok) return `⚠ ${result.error}`;
+
+      return `Added task: "${validation.data.title}".`;
+    }
+    case "create_reminder": {
+      const validation = safeValidate(createReminderSchema, {
+        message: intent.message,
+        remindAt: new Date(intent.remindAt),
+        recurrence: intent.recurrence,
+      });
+      if (!validation.ok) return `Couldn't schedule that: ${validation.error}`;
+
+      const result = await createReminder(accountId, validation.data);
+      if (!result.ok) return `⚠ ${result.error}`;
+
+      const recurrenceNote = validation.data.recurrence === "none" ? "" : ` (repeating ${validation.data.recurrence})`;
+      return `Got it — I'll remind you at ${validation.data.remindAt.toISOString()}${recurrenceNote}.`;
+    }
+    case "answer_question":
+      return intent.answer;
+    default:
+      // Unreachable in practice: callers filter out "unrecognized"
+      // intents before invoking this function (see handleCommand).
+      // Kept as a safe fallback rather than an assertion, since a
+      // narrower AiIntent union added later could otherwise silently
+      // fall through with no return value.
+      return `I didn't understand one part of that.`;
+  }
+}
