@@ -43,6 +43,7 @@ import { recordExchange, getConversationHistory, countExchanges } from "../lib/c
 import { logError } from "../lib/logger.js";
 import { isGroqConfigured, isNotionConfigured, isSemanticSearchConfigured, env } from "../config/env.js";
 import { interpretMessage, answerQuestionWithRag, type AiIntent } from "../services/aiService.js";
+import { retrieveRelevantNotes } from "../services/ragService.js";
 import { maybeSummarizeOldConversation } from "../services/conversationSummaryService.js";
 
 /**
@@ -645,7 +646,9 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       if (aiEnabled) {
         await recordExchange(accountId, "user", text);
         const history = (await getConversationHistory(accountId)).slice(0, -1);
-        const aiResult = await interpretMessage(accountId, text, new Date().toISOString(), [], history);
+        const retrieval = await retrieveRelevantNotes(accountId, text, 5);
+        const snippets = retrieval.ok ? retrieval.data.map((n) => `${n.title}: ${n.body}`) : [];
+        const aiResult = await interpretMessage(accountId, text, new Date().toISOString(), snippets, history);
 
         if (aiResult.ok) {
           const recognizedIntents = aiResult.intents.filter((i) => i.type !== "unrecognized");
