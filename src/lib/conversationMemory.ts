@@ -90,11 +90,3 @@ export async function deleteExchanges(accountId: string, ids: string[]): Promise
     logError("deleteExchanges", err, { accountId });
   }
 }
-
-export async function clearConversationMemory(accountId: string): Promise<void> {
-  try {
-    await supabaseAdmin.from("conversation_history").delete().eq("account_id", accountId);
-  } catch (err) {
-    logError("clearConversationMemory", err, { accountId });
-  }
-}

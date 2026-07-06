@@ -34,7 +34,7 @@ create table if not exists public.accounts (
   -- search) are OPT-IN and OFF by default. Nothing about this account's
   -- notes/tasks/reminders is ever sent to a third-party model provider
   -- unless the user explicitly runs "ai on". See src/services/aiService.ts.
-  ai_enabled         boolean not null default true,
+  ai_enabled         boolean not null default false,
   -- Daily digest: also OPT-IN and OFF by default, since it's a form of
   -- unsolicited proactive messaging — some users want a purely reactive
   -- bot. digest_hour is the account's own LOCAL hour (0-23, resolved via
