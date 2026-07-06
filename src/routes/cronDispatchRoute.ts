@@ -17,7 +17,9 @@ cronRouter.post("/internal/cron/dispatch", verifyCronSecret, async (_req, res) =
     let failed = 0;
 
     for (const reminder of dueResult.data) {
-      const prefix = reminder.isAlarm ? "🔔 ALARM" : "⏰ Reminder";
+      const prefix = reminder.isAlarm
+        ? `🔔 ALARM (send "acknowledge ${reminder.id.slice(0, 8)}" to stop)`
+        : "⏰ Reminder";
       const delivered = await deliverToAccount(reminder.accountId, `${prefix}: ${reminder.message}`);
       if (delivered) {
         if (reminder.isAlarm) {
