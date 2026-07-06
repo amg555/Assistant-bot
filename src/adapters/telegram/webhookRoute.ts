@@ -36,7 +36,7 @@ telegramRouter.post("/webhook", verifyTelegramWebhook, async (req, res) => {
 
   try {
     if (!checkRateLimit(`telegram:${platformUserId}`, 20, 60_000)) {
-      await sendTelegramMessage(chatId, "You're sending messages too quickly. Please slow down a bit.");
+      await sendTelegramMessage(chatId, "Whoa, slow down! You're sending messages too quickly — give it a moment between each one.");
       return;
     }
 
@@ -108,7 +108,7 @@ async function transcribeVoiceMessage(
 
   const audioBuffer = await downloadTelegramFile(fileId);
   if (!audioBuffer) {
-    await sendTelegramMessage(chatId, "I couldn't download that voice message. Please try again or type it instead.");
+    await sendTelegramMessage(chatId, "I couldn't download that voice message. Could you try again or type it out?");
     return null;
   }
 

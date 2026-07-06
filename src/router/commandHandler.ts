@@ -66,30 +66,53 @@ export interface IncomingCommand {
 }
 
 const HELP_TEXT = [
-  "Here's what I can do:",
-  "• note <title> | <body> — save a note",
-  "• notes — show your recent notes",
-  "• task <title> [by <when>] — add a task",
-  "• tasks — list open tasks",
-  "• done <task-id> — mark a task complete",
-  "• remind me <message> in <10m|2h|1d> — schedule a one-time reminder",
-  "• remind me <message> at <9am|21:30> [every day|every week|every month] — schedule by clock time in your own timezone, optionally recurring",
-  "• reminders — list your pending reminders (with ids)",
-  "• snooze <reminder-id> <10m|2h|1d> — push a reminder back",
-  "• undo — revert your last note/task/reminder action (works for a few minutes after)",
-  "• timezone <IANA name, e.g. Asia/Kolkata> — set your timezone (default UTC) so clock-time reminders land correctly",
-  "• chart [7d|30d] [tasks|notes|reminders|all] — see your activity",
-  "• link — get a code to connect another platform to this account",
-  "• connect <code> — use a code from another platform to merge accounts",
-  "• ask <question> — ask about your own notes (needs 'ai on')",
-  "• ai on / ai off — opt in or out of AI-assisted natural language (off by default; nothing is sent to an AI provider until you turn this on)",
-  "• (Telegram/WhatsApp) send a voice message — transcribed and understood the same as typed text (needs 'ai on')",
-  "• digest on [at <hour, e.g. 8am>] / digest off — get a daily morning summary of tasks due, reminders, and notes so nothing slips through (off by default; delivered to Telegram/WhatsApp)",
-  "• notion connect — get a link to connect your own Notion workspace",
-  "• notion database <id> — choose which Notion database your notes sync to",
-  "• notion status — check your Notion connection",
-  "• notion disconnect — stop syncing and remove your stored Notion access",
+  "Hey! I'm your personal assistant. I can save notes, track tasks, and remind you of things across Telegram and more.",
+  "",
+  "Let's get started. Quick example — try one of these first:",
+  "  note Buy groceries | milk, eggs, bread",
+  "  task Finish report by tomorrow",
+  "  remind me call dentist in 2h",
+  "",
+  "📝  Notes",
+  "  note <title> | <body> — save a note",
+  "  notes — show your recent notes",
+  "",
+  "✅  Tasks",
+  "  task <title> [by <when>] — add a task",
+  "  tasks — list open tasks",
+  "  done <task-id> — mark a task complete",
+  "",
+  "⏰  Reminders",
+  "  remind me <msg> in <10m|2h|1d> — one-time reminder",
+  "  remind me <msg> at <9am> [every day|week|month] — clock-time reminder, optionally recurring",
+  "  reminders — list pending reminders",
+  "  snooze <id> <10m|2h|1d> — push a reminder back",
+  "",
+  "⚙️  Settings",
+  "  timezone <Asia/Kolkata> — set your timezone so reminders land correctly",
+  "  undo — revert your last action (works for a few minutes)",
+  "  link — get a code to connect another platform to this account",
+  "  connect <code> — merge accounts from another platform",
+  "",
+  "📊  Activity",
+  "  chart [7d|30d] [tasks|notes|reminders] — see your activity",
+  "",
+  "🤖  AI Features (opt-in)",
+  "  ai on / ai off — turn AI on or off (off by default)",
+  "  ask <question> — search your notes using AI",
+  "  send a voice message — works like typed text (needs ai on)",
+  "",
+  "📰  Daily Digest (opt-in)",
+  "  digest on [at <8am>] / digest off — get a daily summary",
+  "",
+  "🔗  Notion Sync (opt-in)",
+  "  notion connect — link your Notion workspace",
+  "  notion database <id> — choose which database to sync",
+  "  notion status — check your connection",
+  "  notion disconnect — stop syncing",
 ].join("\n");
+
+const WELCOME_TEXT = "Hey there! I'm your personal assistant. I'll keep your notes, tasks, and reminders in one place. Try /help to see everything I can do, or just start typing — say something like \"note hello world\" or \"task buy milk by tomorrow\".";
 
 export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
   let accountId = cmd.resolvedAccountId;
@@ -105,6 +128,9 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
 
   try {
     if (lower === "/start" || lower === "help" || lower === "/help") {
+      if (lower === "/start") {
+        return { kind: "text", text: WELCOME_TEXT };
+      }
       return { kind: "text", text: HELP_TEXT };
     }
 
@@ -116,7 +142,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
         body: bodyParts.join("|").trim(),
         tags: [],
       });
-      if (!validation.ok) return { kind: "text", text: `Couldn't save that note: ${validation.error}` };
+      if (!validation.ok) return { kind: "text", text: `Hmm, couldn't save that note: ${validation.error}` };
 
       const result = await createNote(accountId, validation.data);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
@@ -139,13 +165,13 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
         });
       }
 
-      return { kind: "text", text: 'Saved your note. Send "undo" within a few minutes to remove it.' };
+      return { kind: "text", text: 'Saved your note! Send "undo" within a few minutes to remove it.' };
     }
 
     if (lower === "notes") {
       const result = await listRecentNotes(accountId);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
-      if (result.data.length === 0) return { kind: "text", text: "You don't have any notes yet." };
+      if (result.data.length === 0) return { kind: "text", text: "You don't have any notes yet. Create one with: note <title> | <body>" };
       return {
         kind: "text",
         text: result.data.map((n) => `• ${n.title}`).join("\n"),
@@ -204,18 +230,18 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
         dueAt: dueAt ?? undefined,
         priority: "normal",
       });
-      if (!validation.ok) return { kind: "text", text: `Couldn't save that task: ${validation.error}` };
+      if (!validation.ok) return { kind: "text", text: `Hmm, couldn't save that task: ${validation.error}` };
 
       const result = await createTask(accountId, validation.data);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
       recordUndoableAction(accountId, { kind: "delete_task", taskId: result.data.id });
-      return { kind: "text", text: 'Task added. Send "undo" within a few minutes to remove it.' };
+      return { kind: "text", text: 'Task added! Send "undo" within a few minutes to remove it.' };
     }
 
     if (lower === "tasks") {
       const result = await listOpenTasks(accountId);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
-      if (result.data.length === 0) return { kind: "text", text: "No open tasks. You're all caught up." };
+      if (result.data.length === 0) return { kind: "text", text: "No open tasks — you're all caught up! 🎉" };
       return {
         kind: "text",
         text: result.data
@@ -231,12 +257,12 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       const openTasks = await listOpenTasks(accountId, 50);
       if (!openTasks.ok) return { kind: "text", text: `⚠ ${openTasks.error}` };
       const match = openTasks.data.find((t) => t.id.startsWith(idPrefix));
-      if (!match) return { kind: "text", text: "Couldn't find an open task with that id." };
+      if (!match) return { kind: "text", text: "Hmm, couldn't find an open task with that id. Use 'tasks' to see them all." };
 
       const result = await completeTask(accountId, match.id);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
       recordUndoableAction(accountId, { kind: "uncomplete_task", taskId: match.id });
-      return { kind: "text", text: 'Marked as done. Nice work. Send "undo" within a few minutes to reopen it.' };
+      return { kind: "text", text: 'Done! Nice work. Send "undo" within a few minutes to reopen it.' };
     }
 
     if (lower.startsWith("remind me ")) {
@@ -273,7 +299,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       }
 
       const validation = safeValidate(createReminderSchema, { message, remindAt: when, recurrence });
-      if (!validation.ok) return { kind: "text", text: `Couldn't schedule that: ${validation.error}` };
+      if (!validation.ok) return { kind: "text", text: `Hmm, couldn't schedule that: ${validation.error}` };
 
       const result = await createReminder(accountId, validation.data);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
@@ -282,7 +308,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       const recurrenceNote = recurrence === "none" ? "" : ` (repeating ${recurrence})`;
       return {
         kind: "text",
-        text: `Got it — I'll remind you at ${when.toISOString()}${recurrenceNote}. Send "undo" within a few minutes to cancel it.`,
+        text: `Got it! I'll remind you at ${when.toISOString()}${recurrenceNote}. Send "undo" within a few minutes to cancel it.`,
       };
     }
 
@@ -539,7 +565,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
     return { kind: "text", text: `I didn't understand that. Send "help" to see what I can do.` };
   } catch (err) {
     logError("handleCommand", err, { platform: cmd.platform });
-    return { kind: "text", text: "Something went wrong on my end. Please try again shortly." };
+    return { kind: "text", text: "Something went wrong on my end. Please try again in a moment." };
   }
 }
 
