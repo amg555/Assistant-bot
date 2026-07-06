@@ -71,9 +71,9 @@ export interface IncomingCommand {
 }
 
 const HELP_TEXT = [
-  "Hey! I'm your personal assistant. I can save notes, track tasks, and remind you of things across Telegram and more.",
+  "Hey! I'm your assistant. I keep notes, track tasks, and send reminders across Telegram and more.",
   "",
-  "Let's get started. Quick example — try one of these first:",
+  "Try one of these to get started:",
   "  note Buy groceries | milk, eggs, bread",
   "  task Finish report by tomorrow",
   "  remind me call dentist in 2h",
@@ -120,7 +120,7 @@ const HELP_TEXT = [
   "  notion disconnect — stop syncing",
 ].join("\n");
 
-const WELCOME_TEXT = "Hey there! I'm your personal assistant. I'll keep your notes, tasks, and reminders in one place. Try /help to see everything I can do, or just start typing naturally — I understand plain English. Say something like \"note hello world\", \"remind me to call mom tomorrow\", or just say hi!";
+const WELCOME_TEXT = "Hey! I'm your assistant. You can chat with me naturally — I understand plain English. Try \"remind me to call mom tomorrow\", \"note grocery list\", or just say hi. Send /help anytime to see what I can do.";
 
 function friendlyTime(iso: string, tz?: string): string {
   try {
@@ -154,7 +154,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
   if (!accountId) {
     const accountResult = await resolveOrCreateAccount(cmd.platform, cmd.platformUserId, cmd.displayName);
     if (!accountResult.ok) {
-      return { kind: "text", text: "Sorry — I couldn't reach your account storage. Please try again in a moment." };
+      return { kind: "text", text: "Sorry, I hit a snag. Try again in a moment." };
     }
     accountId = accountResult.data.accountId;
   }
@@ -206,7 +206,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
     if (lower === "notes") {
       const result = await listRecentNotes(accountId);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
-      if (result.data.length === 0) return { kind: "text", text: "You don't have any notes yet. Create one with: note <title> | <body>" };
+      if (result.data.length === 0) return { kind: "text", text: "You haven't saved any notes yet. Try: note <title> | <body>" };
       return {
         kind: "text",
         text: result.data.map((n) => `• ${n.title}`).join("\n"),
@@ -220,13 +220,13 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
 
       const result = await setAccountTimeZone(accountId, validation.data.timeZone);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
-      return { kind: "text", text: `Timezone set to ${validation.data.timeZone}. Clock-time reminders will now use this.` };
+      return { kind: "text", text: `Got it! Your timezone is now ${validation.data.timeZone}.` };
     }
 
     if (lower === "digest off") {
       const result = await setDigestEnabled(accountId, false);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
-      return { kind: "text", text: "Daily digest turned off." };
+      return { kind: "text", text: "Alright, daily digest is off." };
     }
 
     if (lower.startsWith("digest on")) {
@@ -288,7 +288,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
 
     if (lower.startsWith("done ")) {
       const idPrefix = text.slice(5).trim();
-      if (!idPrefix) return { kind: "text", text: "Please provide a task id, e.g. done a1b2c3d4 — use 'tasks' to see your task ids." };
+      if (!idPrefix) return { kind: "text", text: "You'll need the task id. Try: done a1b2c3d4 — use 'tasks' to see the list." };
       // We only stored an 8-char prefix in the UI; resolve via prefix match.
       const openTasks = await listOpenTasks(accountId, 50);
       if (!openTasks.ok) return { kind: "text", text: `⚠ ${openTasks.error}` };
@@ -382,18 +382,18 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
 
       return {
         kind: "text",
-        text: `🔔 Alarm set! I'll remind you ${friendlyTime(when.toISOString())} and keep repeating until you send "acknowledge ${shortId(result.data.id)}".`,
+        text: `🔔 Alarm set! I'll ping you ${friendlyTime(when.toISOString())} and keep repeating until you say "acknowledge ${shortId(result.data.id)}".`,
       };
     }
 
     if (lower.startsWith("acknowledge ")) {
       const idPrefix = text.slice("acknowledge ".length).trim();
-      if (!idPrefix) return { kind: "text", text: "Provide the alarm id, e.g. acknowledge a1b2c3d4." };
+      if (!idPrefix) return { kind: "text", text: "You'll need the alarm id. Try: acknowledge a1b2c3d4" };
 
       const pending = await listPendingReminders(accountId, 50);
       if (!pending.ok) return { kind: "text", text: `⚠ ${pending.error}` };
       const match = pending.data.find((r) => r.id.startsWith(idPrefix));
-      if (!match) return { kind: "text", text: "Couldn't find a pending alarm with that id." };
+      if (!match) return { kind: "text", text: "Hmm, I don't see an alarm with that id." };
 
       const result = await acknowledgeReminder(accountId, match.id);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
@@ -403,7 +403,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
     if (lower === "reminders") {
       const result = await listPendingReminders(accountId);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
-      if (result.data.length === 0) return { kind: "text", text: "You don't have any pending reminders." };
+      if (result.data.length === 0) return { kind: "text", text: "No pending reminders right now." };
       return {
         kind: "text",
         text: result.data
@@ -429,7 +429,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       const pending = await listPendingReminders(accountId, 50);
       if (!pending.ok) return { kind: "text", text: `⚠ ${pending.error}` };
       const match = pending.data.find((r) => r.id.startsWith(validation.data.idPrefix));
-      if (!match) return { kind: "text", text: "Couldn't find a pending reminder with that id." };
+      if (!match) return { kind: "text", text: "Hmm, I don't see a reminder with that id." };
 
       const result = await snoozeReminder(accountId, match.id, validation.data.delayMs);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
@@ -450,22 +450,22 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
         case "delete_note": {
           const result = await deleteNote(accountId, action.noteId);
           if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
-          return { kind: "text", text: "Undone — that note was removed." };
+          return { kind: "text", text: "Taken care of — that note is gone." };
         }
         case "delete_task": {
           const result = await deleteTask(accountId, action.taskId);
           if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
-          return { kind: "text", text: "Undone — that task was removed." };
+          return { kind: "text", text: "Taken care of — that task is removed." };
         }
         case "delete_reminder": {
           const result = await deleteReminder(accountId, action.reminderId);
           if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
-          return { kind: "text", text: "Undone — that reminder was cancelled." };
+          return { kind: "text", text: "Taken care of — that reminder is cancelled." };
         }
         case "uncomplete_task": {
           const result = await uncompleteTask(accountId, action.taskId);
           if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
-          return { kind: "text", text: "Undone — that task is open again." };
+          return { kind: "text", text: "Done — that task is back open." };
         }
         case "restore_reminder_time": {
           const result = await restoreReminderTime(accountId, action.reminderId, action.previousRemindAt);
@@ -492,7 +492,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
 
     if (lower === "link") {
       if (!checkRateLimit(`link-code:${accountId}`, 3, 60 * 60 * 1000)) {
-        return { kind: "text", text: "Too many link codes requested. Please try again in an hour." };
+        return { kind: "text", text: "You've requested too many link codes. Try again in an hour." };
       }
       const result = await issueLinkCode(accountId);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
@@ -519,7 +519,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
         validation.data.displayName
       );
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
-      return { kind: "text", text: "Linked! This platform now shares the same notes, tasks, and reminders." };
+      return { kind: "text", text: "You're all set! Both platforms now share the same notes, tasks, and reminders." };
     }
 
     if (lower === "webhook link") {
@@ -533,20 +533,20 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
 
     if (lower === "ai on") {
       if (!isGroqConfigured) {
-        return { kind: "text", text: "AI features aren't configured on this server yet. Ask the operator to set GROQ_API_KEY." };
+        return { kind: "text", text: "Sorry, the AI features haven't been set up yet. Check back later." };
       }
       const result = await setAiEnabledForAccount(accountId, true);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
       return {
         kind: "text",
-        text: "AI-assisted replies are now ON. From now on, your messages and small note excerpts you ask about may be sent to Groq's API to help understand you. Send \"ai off\" anytime to stop this.",
+        text: "AI is now ON. I'll use it to help understand you better. Send \"ai off\" anytime to turn it off.",
       };
     }
 
     if (lower === "ai off") {
       const result = await setAiEnabledForAccount(accountId, false);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
-      return { kind: "text", text: "AI-assisted replies are now OFF. Nothing further is sent to any AI provider." };
+      return { kind: "text", text: "AI is now OFF. Your messages won't be sent to any AI service." };
     }
 
     if (lower === "notion connect") {
@@ -554,7 +554,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
         return { kind: "text", text: "Notion sync isn't configured on this server yet." };
       }
       if (!checkRateLimit(`notion-connect:${accountId}`, 5, 60 * 60 * 1000)) {
-        return { kind: "text", text: "Too many connection attempts. Please try again in an hour." };
+        return { kind: "text", text: "You've tried connecting too many times. Try again in an hour." };
       }
 
       const stateResult = await issueOAuthState(accountId);
@@ -576,12 +576,12 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       const connectionResult = await getNotionConnection(accountId);
       if (!connectionResult.ok) return { kind: "text", text: `⚠ ${connectionResult.error}` };
       if (!connectionResult.data) {
-        return { kind: "text", text: 'You need to connect Notion first — send "notion connect".' };
+        return { kind: "text", text: "You haven't connected Notion yet. Send \"notion connect\" to get started." };
       }
 
       const result = await setNotionDatabaseId(accountId, databaseId);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
-      return { kind: "text", text: "Notion database set. New notes will now sync there automatically." };
+      return { kind: "text", text: "Done! New notes will automatically sync to your Notion database." };
     }
 
     if (lower === "notion status") {
@@ -591,7 +591,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       const connectionResult = await getNotionConnection(accountId);
       if (!connectionResult.ok) return { kind: "text", text: `⚠ ${connectionResult.error}` };
       if (!connectionResult.data) {
-        return { kind: "text", text: 'Not connected to Notion. Send "notion connect" to get started.' };
+        return { kind: "text", text: "You're not connected to Notion yet. Send \"notion connect\" to get started." };
       }
       const c = connectionResult.data;
       return {
@@ -603,23 +603,23 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
     if (lower === "notion disconnect") {
       const result = await disconnectNotion(accountId);
       if (!result.ok) return { kind: "text", text: `⚠ ${result.error}` };
-      return { kind: "text", text: "Disconnected. Your Notion access token has been removed from our storage. Existing notes are unaffected." };
+      return { kind: "text", text: "Disconnected from Notion. Your notes here are safe." };
     }
 
     if (lower.startsWith("ask ")) {
       const question = text.slice(4).trim();
       if (!question) return { kind: "text", text: "Try: ask what did I write about the budget?" };
 
-      if (!isGroqConfigured) return { kind: "text", text: "AI features aren't configured on this server yet." };
+      if (!isGroqConfigured) return { kind: "text", text: "Sorry, the AI features haven't been set up yet." };
       if (!(await isAiEnabledForAccount(accountId))) {
-        return { kind: "text", text: "AI is off for your account. Send \"ai on\" first if you'd like to use this." };
+        return { kind: "text", text: "AI is off for your account. Send \"ai on\" to turn it on." };
       }
 
       await recordExchange(accountId, "user", text);
       const history = (await getConversationHistory(accountId)).slice(0, -1);
       const result = await answerQuestionWithRag(accountId, question, history);
       if (!result.ok) {
-        return { kind: "text", text: "I couldn't reach the AI service just now. Please try again shortly." };
+        return { kind: "text", text: "Sorry, I couldn't reach the AI service. Try again in a bit." };
       }
       const firstChat = result.intents.find((i) => i.type === "chat");
       if (firstChat && firstChat.type === "chat") {
@@ -633,7 +633,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
         void maybeSummarizeOldConversation(accountId, await countExchanges(accountId));
         return { kind: "text", text: firstIntent.answer };
       }
-      return { kind: "text", text: "I don't have enough information in your notes to answer that." };
+      return { kind: "text", text: "I don't have enough info in your notes to answer that." };
     }
 
     // Natural-language fallback: only reached when no rigid command
@@ -670,14 +670,14 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
           }
         }
       } else {
-        return { kind: "text", text: `AI is off for your account, so I can only understand specific commands. Try "help" to see what I can do, or send "ai on" to chat naturally.` };
+        return { kind: "text", text: `AI is off for your account, so I can only follow specific commands. Try "help" to see what I can do, or send "ai on" to chat freely.` };
       }
     }
 
-    return { kind: "text", text: `Not sure what that means. Try "help" to see what I can do, or just say something like "note hello world" or "task buy milk".` };
+    return { kind: "text", text: `Not sure what you mean. Try "help" to see what I can do, or just say something like "note hello world" or "remind me to call mom".` };
   } catch (err) {
     logError("handleCommand", err, { platform: cmd.platform });
-    return { kind: "text", text: "Something went wrong on my end. Please try again in a moment." };
+    return { kind: "text", text: "Something went wrong on my end. Give it another try in a moment." };
   }
 }
 
