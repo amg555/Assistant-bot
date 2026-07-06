@@ -41,6 +41,7 @@ export type AiIntent =
   | { type: "create_task"; title: string; dueAt?: string }
   | { type: "create_reminder"; message: string; remindAt: string; recurrence: RecurrenceRule }
   | { type: "answer_question"; answer: string }
+  | { type: "chat"; text: string }
   | { type: "unrecognized" };
 
 /**
@@ -125,13 +126,16 @@ const TOOLS: Groq.Chat.Completions.ChatCompletionTool[] = [
 ];
 
 const SYSTEM_PROMPT = [
-  "You are a personal assistant bot's natural-language understanding layer.",
-  "Decide which tool call(s) match the user's message, then call them.",
-  "If the user's message describes MULTIPLE distinct items (e.g. 'remind me to call mom tomorrow and also buy milk'), call the tool multiple times — once per distinct item — in a single response, rather than only handling the first one.",
-  "Never invent facts. If asked a question and the provided context doesn't contain the answer, call answer_question and say you don't have that information — do not guess.",
-  "Times must be resolved to real ISO-8601 timestamps using the provided 'current time' as the reference point. Never fabricate a time if the user gave none for a reminder.",
-  "For create_reminder, set recurrence to 'daily'/'weekly'/'monthly' if the user said 'every day'/'every week'/'every month' or an equivalent phrase; otherwise use 'none'.",
-].join(" ");
+  "You are a friendly personal assistant. The user can talk to you naturally.",
+  "",
+  "If the user wants to save a note, create a task, set a reminder, or ask about their notes — use the appropriate tool.",
+  "If the user is just chatting, asking a general question, or greeting you — respond conversationally without using a tool.",
+  "You can mix tools and conversation in a single response (e.g., create a note AND reply with a friendly message).",
+  "",
+  "For reminders: set recurrence to 'daily'/'weekly'/'monthly' if the user said 'every day'/'every week'/'every month' or equivalent; otherwise use 'none'.",
+  "Never invent facts. If you don't know something, say so.",
+  "Times must be resolved to real ISO-8601 timestamps using the provided current time as the reference point.",
+].join("\n");
 
 /** Converts free-form user text into a structured intent via Groq
  * tool-calling. Optionally includes RAG context snippets (already
@@ -168,27 +172,33 @@ export async function interpretMessage(
         { role: "user", content: message },
       ],
       tools: TOOLS,
-      tool_choice: "required",
-      // parallel_tool_calls defaults to true on models that support it
-      // (llama-3.1-8b-instant, llama-3.3-70b-versatile — both confirmed
-      // to support parallel tool use); explicit here so behavior is
-      // documented, not just relying on an SDK default.
       parallel_tool_calls: true,
-      temperature: 0.2,
+      temperature: 0.7,
       max_tokens: 800,
     });
 
-    const toolCalls = completion.choices[0]?.message?.tool_calls ?? [];
+    const responseMessage = completion.choices[0]?.message;
+    const textContent = responseMessage?.content?.trim() ?? "";
+    const toolCalls = responseMessage?.tool_calls ?? [];
     const functionCalls = toolCalls.filter(
       (call): call is Groq.Chat.Completions.ChatCompletionMessageToolCall & { type: "function" } =>
         call.type === "function"
     );
 
-    if (functionCalls.length === 0) {
-      return { ok: true, intents: [{ type: "unrecognized" }] };
+    const intents: AiIntent[] = [];
+
+    if (functionCalls.length > 0) {
+      intents.push(...functionCalls.map((call) => parseToolCall(call.function.name, call.function.arguments)));
     }
 
-    const intents = functionCalls.map((call) => parseToolCall(call.function.name, call.function.arguments));
+    if (textContent) {
+      intents.push({ type: "chat", text: textContent });
+    }
+
+    if (intents.length === 0) {
+      intents.push({ type: "unrecognized" });
+    }
+
     return { ok: true, intents };
   } catch (err) {
     logError("interpretMessage", err, { accountId });

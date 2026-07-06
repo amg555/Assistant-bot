@@ -660,6 +660,8 @@ async function executeAiIntent(accountId: string, intent: AiIntent): Promise<str
     }
     case "answer_question":
       return intent.answer;
+    case "chat":
+      return intent.text;
     default:
       // Unreachable in practice: callers filter out "unrecognized"
       // intents before invoking this function (see handleCommand).
