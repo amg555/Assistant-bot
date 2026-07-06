@@ -8,7 +8,7 @@
 
 # Notion-Bot Assistant
 
-**Your personal assistant, wherever you chat.** Save notes, track tasks, set reminders, and search everything — from Telegram or Discord. No app to install, no subscription fee. Runs on Render's free tier.
+**Your personal assistant, wherever you chat.** Save notes, track tasks, set reminders, and search everything — from Telegram, Discord, or WhatsApp. No app to install, no subscription fee. Runs on Render's free tier.
 
 > 👋 **New here?** Read the **[User Guide](docs/user-guide.md)** for a gentle walkthrough of every command with examples.
 
@@ -41,7 +41,7 @@ Bot:        Got it — you said: add milk and eggs to shopping list. Saved your 
 | 📰 **Daily Digest** | Optional morning summary of tasks, reminders, and notes. |
 | 🔗 **Platform Linking** | Connect Telegram + Discord to one account. |
 | 🔄 **Notion Sync** | Two-way OAuth sync with your Notion workspace. |
-| 📱 **Cross-Platform** | Telegram (live), Discord (live), WhatsApp (scaffolded). |
+| 📱 **Cross-Platform** | Telegram (live), Discord (live), WhatsApp (live). |
 
 ---
 
@@ -80,9 +80,9 @@ Then **talk to your bot on Telegram** — it understands plain English.
 ## How it works
 
 ```
-You (Telegram/Discord) → Webhook → Express Server → Zod Validation → Supabase
-                                    ↕
-                               Groq AI (optional)
+You (Telegram/Discord/WhatsApp) → Webhook → Express Server → Zod Validation → Supabase
+                                           ↕
+                                      Groq AI (optional)
 ```
 
 - **Zero client-side code.** The bot server holds the only Supabase key.
@@ -110,7 +110,7 @@ You (Telegram/Discord) → Webhook → Express Server → Zod Validation → Sup
 ## Tests
 
 ```bash
-npm test          # 93 tests covering timezone math, recurrence, encryption, validation
+npm test          # 99 tests covering timezone math, recurrence, encryption, validation
 npm run typecheck # full TypeScript check
 ```
 
