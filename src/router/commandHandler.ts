@@ -97,12 +97,12 @@ const HELP_TEXT = [
   "📊  Activity",
   "  chart [7d|30d] [tasks|notes|reminders] — see your activity",
   "",
-  "🤖  AI Features (opt-in)",
-  "  ai on / ai off — turn AI on or off (off by default)",
+  "🤖  AI Features",
+  "  ai on / ai off — turn AI on or off (on by default)",
   "  ask <question> — search your notes using AI",
-  "  send a voice message — works like typed text (needs ai on)",
+  "  send a voice message — works like typed text",
   "",
-  "📰  Daily Digest (opt-in)",
+  "📰  Daily Digest",
   "  digest on [at <8am>] / digest off — get a daily summary",
   "",
   "🔗  Notion Sync (opt-in)",
@@ -112,7 +112,7 @@ const HELP_TEXT = [
   "  notion disconnect — stop syncing",
 ].join("\n");
 
-const WELCOME_TEXT = "Hey there! I'm your personal assistant. I'll keep your notes, tasks, and reminders in one place. Try /help to see everything I can do, or just start typing — say something like \"note hello world\" or \"task buy milk by tomorrow\".";
+const WELCOME_TEXT = "Hey there! I'm your personal assistant. I'll keep your notes, tasks, and reminders in one place. Try /help to see everything I can do, or just start typing naturally — I understand plain English. Say something like \"note hello world\", \"remind me to call mom tomorrow\", or just say hi!";
 
 function friendlyTime(iso: string, tz?: string): string {
   try {
