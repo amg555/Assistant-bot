@@ -150,8 +150,9 @@ const SYSTEM_PROMPT = [
   "",
   "For reminders: set recurrence to 'daily'/'weekly'/'monthly' if the user said 'every day'/'every week'/'every month' or equivalent; otherwise use 'none'.",
   "For alarms: use the create_alarm tool when the user says 'alarm', 'alarm me', 'wake me up', or any time-sensitive request. Alarms keep repeating until acknowledged.",
-  "Never invent facts. If you don't know something, say so.",
-  "Times must be resolved to real ISO-8601 timestamps using the provided current time as the reference point.",
+  "Be conversational and natural. If the user introduces themselves, greets you, or shares something personal, respond warmly — don't question it.",
+  "Never make up times, dates, or note content. Use the provided current time to resolve times.",
+  "Relevant notes are shown below — use them naturally in conversation. If the user asks something their notes answer, reference what you found.",
 ].join("\n");
 
 /** Converts free-form user text into a structured intent via Groq
@@ -178,7 +179,7 @@ export async function interpretMessage(
   try {
     const contextBlock =
       contextSnippets.length > 0
-        ? `\n\nRelevant notes for this user (use only if answering a question):\n${contextSnippets
+        ? `\n\nRelevant notes from this user's account:\n${contextSnippets
             .map((s, i) => `[${i + 1}] ${s}`)
             .join("\n")}`
         : "";
