@@ -733,6 +733,21 @@ async function executeAiIntent(accountId: string, intent: AiIntent): Promise<str
       const recurrenceNote = validation.data.recurrence === "none" ? "" : ` (repeating ${validation.data.recurrence})`;
       return `Got it! I'll remind you ${friendlyTime(validation.data.remindAt.toISOString())}${recurrenceNote}.`;
     }
+    case "create_alarm": {
+      const remindAt = new Date(intent.remindAt);
+      const validation = safeValidate(createReminderSchema, {
+        message: intent.message,
+        remindAt,
+        recurrence: "none",
+        isAlarm: true,
+      });
+      if (!validation.ok) return `Couldn't set that alarm: ${validation.error}`;
+
+      const result = await createReminder(accountId, validation.data);
+      if (!result.ok) return `⚠ ${result.error}`;
+
+      return `🔔 Alarm set! I'll keep reminding you ${friendlyTime(validation.data.remindAt.toISOString())} until you acknowledge it.`;
+    }
     case "answer_question":
       return intent.answer;
     case "chat":

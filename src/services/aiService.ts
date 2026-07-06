@@ -39,6 +39,7 @@ export type AiIntent =
   | { type: "create_note"; title: string; body: string }
   | { type: "create_task"; title: string; dueAt?: string }
   | { type: "create_reminder"; message: string; remindAt: string; recurrence: RecurrenceRule }
+  | { type: "create_alarm"; message: string; remindAt: string }
   | { type: "answer_question"; answer: string }
   | { type: "chat"; text: string }
   | { type: "unrecognized" };
@@ -110,6 +111,22 @@ const TOOLS: Groq.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "create_alarm",
+      description:
+        "Schedule an important/persistent alarm that keeps repeating every few minutes until acknowledged. Use when the user says 'alarm', 'alarm me', 'wake me up', or anything time-sensitive they must not miss.",
+      parameters: {
+        type: "object",
+        properties: {
+          message: { type: "string", description: "What to alarm the user about" },
+          remindAtIso: { type: "string", description: "ISO-8601 timestamp of when to fire the alarm" },
+        },
+        required: ["message", "remindAtIso"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "answer_question",
       description:
         "Answer a question the user asked about their own notes/tasks, using ONLY the provided context snippets. If the context doesn't contain the answer, say so honestly instead of guessing.",
@@ -127,11 +144,12 @@ const TOOLS: Groq.Chat.Completions.ChatCompletionTool[] = [
 const SYSTEM_PROMPT = [
   "You are a friendly personal assistant. The user can talk to you naturally.",
   "",
-  "If the user wants to save a note, create a task, set a reminder, or ask about their notes — use the appropriate tool.",
+  "If the user wants to save a note, create a task, set a reminder or alarm, or ask about their notes — use the appropriate tool.",
   "If the user is just chatting, asking a general question, or greeting you — respond conversationally without using a tool.",
   "You can mix tools and conversation in a single response (e.g., create a note AND reply with a friendly message).",
   "",
   "For reminders: set recurrence to 'daily'/'weekly'/'monthly' if the user said 'every day'/'every week'/'every month' or equivalent; otherwise use 'none'.",
+  "For alarms: use the create_alarm tool when the user says 'alarm', 'alarm me', 'wake me up', or any time-sensitive request. Alarms keep repeating until acknowledged.",
   "Never invent facts. If you don't know something, say so.",
   "Times must be resolved to real ISO-8601 timestamps using the provided current time as the reference point.",
 ].join("\n");
@@ -261,6 +279,13 @@ function parseToolCall(name: string, rawArgs: string): AiIntent {
         remindAt: validation.data.remindAt.toISOString(),
         recurrence: validation.data.recurrence,
       };
+    }
+    case "create_alarm": {
+      const message = String(args.message ?? "").trim();
+      const remindAt = args.remindAtIso ? new Date(String(args.remindAtIso)) : undefined;
+      if (!message || !remindAt) return { type: "unrecognized" };
+      if (remindAt.getTime() <= Date.now()) return { type: "unrecognized" };
+      return { type: "create_alarm", message: message.slice(0, 500), remindAt: remindAt.toISOString() };
     }
     case "answer_question": {
       const answer = String(args.answer ?? "").trim();
