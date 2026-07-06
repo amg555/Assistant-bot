@@ -53,6 +53,7 @@ Bot:        Got it — you said: add milk and eggs to shopping list. Saved your 
 | 🏗 A **developer** extending the bot | [`docs/architecture.md`](docs/architecture.md) — layers, patterns, adding platforms |
 | 🛠 An **operator** deploying your own instance | [`docs/operator-runbook.md`](docs/operator-runbook.md) — step-by-step setup |
 | 🔗 Connecting **external services** (n8n, IFTTT) | [`docs/webhook-inbox.md`](docs/webhook-inbox.md) — webhook integration |
+| 📱 Building a **mobile/web app** for your bot | [`docs/mobile-integration.md`](docs/mobile-integration.md) — WebSocket chat, FCM push, REST API |
 | 🔄 Setting up **Notion sync** | [`docs/notion-sync.md`](docs/notion-sync.md) — OAuth + two-way sync |
 | 🐳 Running with **Docker** | [`docs/docker.md`](docs/docker.md) — container deployment |
 
