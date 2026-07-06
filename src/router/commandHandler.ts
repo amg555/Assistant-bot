@@ -37,10 +37,11 @@ import {
 import { parseWhen, extractRecurrence, parseHourOfDay, parseRelativeDurationMs } from "../lib/parseWhen.js";
 import { checkRateLimit } from "../middleware/rateLimit.js";
 import { recordUndoableAction, takeUndoableAction } from "../lib/undoStore.js";
-import { recordExchange, getConversationHistory } from "../lib/conversationMemory.js";
+import { recordExchange, getConversationHistory, countExchanges } from "../lib/conversationMemory.js";
 import { logError } from "../lib/logger.js";
 import { isGroqConfigured, isNotionConfigured, isSemanticSearchConfigured, env } from "../config/env.js";
 import { interpretMessage, answerQuestionWithRag, type AiIntent } from "../services/aiService.js";
+import { maybeSummarizeOldConversation } from "../services/conversationSummaryService.js";
 
 /**
  * A platform-agnostic reply: adapters translate this into whatever
@@ -547,20 +548,22 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
         return { kind: "text", text: "AI is off for your account. Send \"ai on\" first if you'd like to use this." };
       }
 
-      recordExchange(accountId, "user", text);
-      const history = getConversationHistory(accountId).slice(0, -1);
+      await recordExchange(accountId, "user", text);
+      const history = (await getConversationHistory(accountId)).slice(0, -1);
       const result = await answerQuestionWithRag(accountId, question, history);
       if (!result.ok) {
         return { kind: "text", text: "I couldn't reach the AI service just now. Please try again shortly." };
       }
       const firstChat = result.intents.find((i) => i.type === "chat");
       if (firstChat && firstChat.type === "chat") {
-        recordExchange(accountId, "assistant", firstChat.text);
+        await recordExchange(accountId, "assistant", firstChat.text);
+        void maybeSummarizeOldConversation(accountId, await countExchanges(accountId));
         return { kind: "text", text: firstChat.text };
       }
       const firstIntent = result.intents[0];
       if (firstIntent?.type === "answer_question") {
-        recordExchange(accountId, "assistant", firstIntent.answer);
+        await recordExchange(accountId, "assistant", firstIntent.answer);
+        void maybeSummarizeOldConversation(accountId, await countExchanges(accountId));
         return { kind: "text", text: firstIntent.answer };
       }
       return { kind: "text", text: "I don't have enough information in your notes to answer that." };
@@ -574,8 +577,8 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
     if (isGroqConfigured) {
       const aiEnabled = await isAiEnabledForAccount(accountId);
       if (aiEnabled) {
-        recordExchange(accountId, "user", text);
-        const history = getConversationHistory(accountId).slice(0, -1);
+        await recordExchange(accountId, "user", text);
+        const history = (await getConversationHistory(accountId)).slice(0, -1);
         const aiResult = await interpretMessage(accountId, text, new Date().toISOString(), [], history);
 
         if (aiResult.ok) {
@@ -586,7 +589,8 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
               outcomeLines.push(await executeAiIntent(accountId, intent));
             }
             const replyText = outcomeLines.join("\n");
-            recordExchange(accountId, "assistant", replyText);
+            await recordExchange(accountId, "assistant", replyText);
+            void maybeSummarizeOldConversation(accountId, await countExchanges(accountId));
             return { kind: "text", text: replyText };
           }
         }

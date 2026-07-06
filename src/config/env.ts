@@ -27,6 +27,7 @@ const envSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
   SUPABASE_STORAGE_BUCKET: z.string().min(1).default("user-attachments"),
+  SUPABASE_DB_URL: z.string().optional().default(""),
 
   INTERNAL_CRON_SECRET: z.string().min(16, "INTERNAL_CRON_SECRET must be at least 16 chars"),
 

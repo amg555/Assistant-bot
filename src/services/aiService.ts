@@ -1,5 +1,6 @@
 import Groq, { toFile } from "groq-sdk";
 import { env, isGroqConfigured } from "../config/env.js";
+import { groqClient } from "./groqClient.js";
 import { logError, logger } from "../lib/logger.js";
 import { checkRateLimit } from "../middleware/rateLimit.js";
 import { retrieveRelevantNotes } from "./ragService.js";
@@ -33,8 +34,6 @@ import {
  *    enforces the account-level gate so this file can't be reached
  *    accidentally from a new call site later.
  */
-
-const groqClient = isGroqConfigured ? new Groq({ apiKey: env.GROQ_API_KEY }) : null;
 
 export type AiIntent =
   | { type: "create_note"; title: string; body: string }

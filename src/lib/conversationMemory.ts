@@ -1,52 +1,100 @@
-const MEMORY_TTL_MS = 30 * 60 * 1000;
-const MAX_EXCHANGES = 6;
+import { supabaseAdmin } from "./supabase.js";
+import { logError } from "./logger.js";
 
-interface Exchange {
+const MAX_EXCHANGES = 50;
+
+export interface Exchange {
+  id: string;
   role: "user" | "assistant";
   text: string;
-  timestamp: number;
+  createdAt: string;
 }
 
-interface StoredConversation {
-  exchanges: Exchange[];
-  lastActivity: number;
-}
-
-const conversations = new Map<string, StoredConversation>();
-
-function gc(): void {
-  const now = Date.now();
-  for (const [key, conv] of conversations) {
-    if (now - conv.lastActivity > MEMORY_TTL_MS) {
-      conversations.delete(key);
-    }
+export async function recordExchange(accountId: string, role: "user" | "assistant", text: string): Promise<void> {
+  try {
+    await supabaseAdmin.from("conversation_history").insert({
+      account_id: accountId,
+      role,
+      text,
+    });
+  } catch (err) {
+    logError("recordExchange", err, { accountId });
   }
 }
 
-export function recordExchange(accountId: string, role: "user" | "assistant", text: string): void {
-  let conv = conversations.get(accountId);
-  if (!conv) {
-    conv = { exchanges: [], lastActivity: Date.now() };
-    conversations.set(accountId, conv);
-  }
-  conv.exchanges.push({ role, text, timestamp: Date.now() });
-  conv.lastActivity = Date.now();
-  if (conv.exchanges.length > MAX_EXCHANGES * 2) {
-    conv.exchanges = conv.exchanges.slice(-MAX_EXCHANGES * 2);
-  }
-  if (Math.random() < 0.1) gc();
-}
-
-export function getConversationHistory(accountId: string): Exchange[] {
-  const conv = conversations.get(accountId);
-  if (!conv) return [];
-  if (Date.now() - conv.lastActivity > MEMORY_TTL_MS) {
-    conversations.delete(accountId);
+export async function getConversationHistory(accountId: string, limit = MAX_EXCHANGES): Promise<Exchange[]> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("conversation_history")
+      .select("id, role, text, created_at")
+      .eq("account_id", accountId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return (data ?? [])
+      .reverse()
+      .map((r) => ({ id: r.id, role: r.role as "user" | "assistant", text: r.text, createdAt: r.created_at }));
+  } catch (err) {
+    logError("getConversationHistory", err, { accountId });
     return [];
   }
-  return conv.exchanges;
 }
 
-export function clearConversationMemory(accountId: string): void {
-  conversations.delete(accountId);
+export async function countExchanges(accountId: string): Promise<number> {
+  try {
+    const { count, error } = await supabaseAdmin
+      .from("conversation_history")
+      .select("*", { count: "exact", head: true })
+      .eq("account_id", accountId);
+    if (error) throw error;
+    return count ?? 0;
+  } catch (err) {
+    logError("countExchanges", err, { accountId });
+    return 0;
+  }
+}
+
+export async function fetchExchangesForSummarization(
+  accountId: string,
+  count: number
+): Promise<Exchange[]> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("conversation_history")
+      .select("id, role, text, created_at")
+      .eq("account_id", accountId)
+      .order("created_at", { ascending: true })
+      .limit(count);
+    if (error) throw error;
+    return (data ?? []).map((r) => ({
+      id: r.id,
+      role: r.role as "user" | "assistant",
+      text: r.text,
+      createdAt: r.created_at,
+    }));
+  } catch (err) {
+    logError("fetchExchangesForSummarization", err, { accountId });
+    return [];
+  }
+}
+
+export async function deleteExchanges(accountId: string, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  try {
+    await supabaseAdmin
+      .from("conversation_history")
+      .delete()
+      .eq("account_id", accountId)
+      .in("id", ids);
+  } catch (err) {
+    logError("deleteExchanges", err, { accountId });
+  }
+}
+
+export async function clearConversationMemory(accountId: string): Promise<void> {
+  try {
+    await supabaseAdmin.from("conversation_history").delete().eq("account_id", accountId);
+  } catch (err) {
+    logError("clearConversationMemory", err, { accountId });
+  }
 }

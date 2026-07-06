@@ -11,6 +11,7 @@ import { cronRouter } from "./routes/cronDispatchRoute.js";
 import { digestRouter } from "./routes/digestDispatchRoute.js";
 import { notionOAuthRouter } from "./routes/notionOAuthRoute.js";
 import { notionWebhookRouter } from "./routes/notionWebhookRoute.js";
+import { runMigrations } from "./lib/migrate.js";
 
 const app = express();
 
@@ -130,8 +131,9 @@ process.on("uncaughtException", (err) => {
   process.exit(1);
 });
 
-const server = app.listen(env.PORT, () => {
+const server = app.listen(env.PORT, async () => {
   logger.info({ port: env.PORT, env: env.NODE_ENV }, "server_started");
+  void runMigrations();
 });
 
 function shutdown(signal: string) {

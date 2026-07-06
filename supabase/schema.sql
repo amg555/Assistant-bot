@@ -263,6 +263,23 @@ create index if not exists idx_activity_account_time
   on public.activity_log (account_id, occurred_at);
 
 -- ---------------------------------------------------------------------
+-- conversation_history: persistent per-account chat memory. Stores raw
+-- exchanges so the AI can see recent conversation context across cold
+-- starts. Old rows are periodically summarized into notes (see
+-- conversationSummaryService.ts) and then pruned to keep the table lean.
+-- ---------------------------------------------------------------------
+create table if not exists public.conversation_history (
+  id            uuid primary key default gen_random_uuid(),
+  account_id    uuid not null references public.accounts(id) on delete cascade,
+  role          text not null check (role in ('user', 'assistant')),
+  text          text not null,
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists idx_conversation_history_account
+  on public.conversation_history (account_id, created_at desc);
+
+-- ---------------------------------------------------------------------
 -- RAG retrieval function: returns the top-N notes for ONE account,
 -- ranked by relevance to a query. The account_id filter is baked into
 -- the function body (not just passed as an application-side WHERE
@@ -361,6 +378,7 @@ alter table public.activity_log        enable row level security;
 alter table public.oauth_states        enable row level security;
 alter table public.notion_connections  enable row level security;
 alter table public.notion_webhook_events enable row level security;
+alter table public.conversation_history   enable row level security;
 
 -- No policies are created for anon/authenticated roles yet — this means
 -- those roles get ZERO access by default (RLS fails closed), which is
