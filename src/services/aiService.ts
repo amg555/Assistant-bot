@@ -320,10 +320,14 @@ export async function transcribeAudio(accountId: string, audioBuffer: Buffer, fi
 /** Convenience wrapper used by the question-answering command path:
  * retrieves account-scoped context via RAG, then asks Groq to answer
  * grounded only in that context. */
-export async function answerQuestionWithRag(accountId: string, question: string): Promise<AiResult> {
+export async function answerQuestionWithRag(
+  accountId: string,
+  question: string,
+  history: { role: "user" | "assistant"; text: string }[] = []
+): Promise<AiResult> {
   const retrieval = await retrieveRelevantNotes(accountId, question, 5);
   const snippets = retrieval.ok ? retrieval.data.map((n) => `${n.title}: ${n.body}`) : [];
-  return interpretMessage(accountId, question, new Date().toISOString(), snippets);
+  return interpretMessage(accountId, question, new Date().toISOString(), snippets, history);
 }
 
 export type SummaryResult = { ok: true; summary: string } | { ok: false; reason: "not_configured" | "rate_limited" | "provider_error" };

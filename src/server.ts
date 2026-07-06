@@ -68,6 +68,10 @@ app.get("/healthz", (_req: Request, res: Response) => {
   res.status(200).json({ status: "ok", uptimeSeconds: Math.round(process.uptime()) });
 });
 
+app.get("/", (_req: Request, res: Response) => {
+  res.status(200).json({ status: "ok", service: "personal-assistant-bot" });
+});
+
 /**
  * Dedicated keep-alive target for an external uptime monitor (e.g.
  * UptimeRobot's free HTTP monitor, checked every 5 minutes). Kept

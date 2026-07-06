@@ -45,9 +45,10 @@ telegramRouter.post("/webhook", verifyTelegramWebhook, async (req, res) => {
 
     if (!inputText && voiceFileId) {
       const transcribed = await transcribeVoiceMessage(platformUserId, displayName, chatId, voiceFileId);
-      if (transcribed === null) return; // a reply was already sent (or nothing to do)
+      if (transcribed === null) return;
       inputText = transcribed.text;
       resolvedAccountId = transcribed.accountId;
+      await sendTelegramMessage(chatId, `Got it — you said: "${inputText.slice(0, 200)}"`);
     }
 
     if (!inputText) return;

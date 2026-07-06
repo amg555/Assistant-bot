@@ -547,7 +547,9 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
         return { kind: "text", text: "AI is off for your account. Send \"ai on\" first if you'd like to use this." };
       }
 
-      const result = await answerQuestionWithRag(accountId, question);
+      recordExchange(accountId, "user", text);
+      const history = getConversationHistory(accountId).slice(0, -1);
+      const result = await answerQuestionWithRag(accountId, question, history);
       if (!result.ok) {
         return { kind: "text", text: "I couldn't reach the AI service just now. Please try again shortly." };
       }
@@ -569,36 +571,28 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
     // opted in. This never bypasses validation — every intent Groq
     // proposes is re-validated through the same schemas as manual
     // commands before touching the database (see aiService.ts).
-    if (isGroqConfigured && (await isAiEnabledForAccount(accountId))) {
-      recordExchange(accountId, "user", text);
-      const history = getConversationHistory(accountId).slice(0, -1);
-      const aiResult = await interpretMessage(accountId, text, new Date().toISOString(), [], history);
+    if (isGroqConfigured) {
+      const aiEnabled = await isAiEnabledForAccount(accountId);
+      if (aiEnabled) {
+        recordExchange(accountId, "user", text);
+        const history = getConversationHistory(accountId).slice(0, -1);
+        const aiResult = await interpretMessage(accountId, text, new Date().toISOString(), [], history);
 
-      if (aiResult.ok) {
-        // A single message can describe multiple distinct items (e.g.
-        // "remind me to call mom and also buy milk") — interpretMessage
-        // returns one intent per distinct item, and each is executed
-        // and validated independently here, in order. One item failing
-        // validation does not abort the others; each gets its own
-        // outcome line in the combined reply, so the user can see
-        // exactly what did and didn't happen.
-        const recognizedIntents = aiResult.intents.filter((i) => i.type !== "unrecognized");
-        if (recognizedIntents.length > 0) {
-          const outcomeLines: string[] = [];
-          for (const intent of recognizedIntents) {
-            outcomeLines.push(await executeAiIntent(accountId, intent));
+        if (aiResult.ok) {
+          const recognizedIntents = aiResult.intents.filter((i) => i.type !== "unrecognized");
+          if (recognizedIntents.length > 0) {
+            const outcomeLines: string[] = [];
+            for (const intent of recognizedIntents) {
+              outcomeLines.push(await executeAiIntent(accountId, intent));
+            }
+            const replyText = outcomeLines.join("\n");
+            recordExchange(accountId, "assistant", replyText);
+            return { kind: "text", text: replyText };
           }
-          const replyText = outcomeLines.join("\n");
-          recordExchange(accountId, "assistant", replyText);
-          return { kind: "text", text: replyText };
         }
-        // Every intent came back "unrecognized" — fall through to the
-        // generic help message below, same as the pre-multi-intent
-        // behavior, instead of showing a per-item "didn't understand"
-        // line for what is really just one failed message overall.
+      } else {
+        return { kind: "text", text: `AI is off for your account, so I can only understand specific commands. Try "help" to see what I can do, or send "ai on" to chat naturally.` };
       }
-      // Falls through to the generic help message below on any
-      // unrecognized/failed AI outcome — never a silent dead end.
     }
 
     return { kind: "text", text: `Not sure what that means. Try "help" to see what I can do, or just say something like "note hello world" or "task buy milk".` };
