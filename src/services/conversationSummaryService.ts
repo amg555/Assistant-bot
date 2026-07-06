@@ -88,11 +88,15 @@ export async function maybeSummarizeOldConversation(
   const newest = oldExchanges[oldExchanges.length - 1]!;
   const dateLabel = `${new Date(oldest.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${new Date(newest.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
 
-  await createNote(accountId, {
-    title: `Conversation summary — ${dateLabel}`,
-    body: summaryResult.summary,
-    tags: ["ai-summary"],
-  });
+  try {
+    await createNote(accountId, {
+      title: `Conversation summary — ${dateLabel}`,
+      body: summaryResult.summary,
+      tags: ["ai-summary"],
+    });
+  } catch {
+    return;
+  }
 
   await deleteExchanges(accountId, oldExchanges.map((e) => e.id));
 }

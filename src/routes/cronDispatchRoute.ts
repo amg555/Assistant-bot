@@ -6,7 +6,15 @@ import { logError, logger } from "../lib/logger.js";
 
 export const cronRouter = Router();
 
+let dispatchLock = false;
+
 cronRouter.post("/internal/cron/dispatch", verifyCronSecret, async (_req, res) => {
+  if (dispatchLock) {
+    logger.warn({ context: "cronDispatchRoute" }, "dispatch_already_in_progress");
+    return res.status(429).json({ error: "dispatch_already_in_progress" });
+  }
+
+  dispatchLock = true;
   try {
     const dueResult = await fetchDueReminders();
     if (!dueResult.ok) {
@@ -39,6 +47,8 @@ cronRouter.post("/internal/cron/dispatch", verifyCronSecret, async (_req, res) =
   } catch (err) {
     logError("cronDispatchRoute.dispatch", err);
     return res.status(500).json({ error: "internal_error" });
+  } finally {
+    dispatchLock = false;
   }
 });
 

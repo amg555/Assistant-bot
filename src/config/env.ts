@@ -67,6 +67,8 @@ const envSchema = z.object({
     .default("")
     .refine((v) => v === "" || /^[0-9a-fA-F]{64}$/.test(v), "NOTION_TOKEN_ENCRYPTION_KEY must be 64 hex characters (32 bytes)"),
   NOTION_MAX_REQUESTS_PER_SECOND: z.coerce.number().positive().default(2),
+  NOTION_API_VERSION: z.string().min(1).default("2025-09-03"),
+  OAUTH_STATE_TTL_MINUTES: z.coerce.number().int().positive().default(10),
 
   // Optional real semantic search (vs. the always-on Postgres full-text
   // search). Blank key means semantic search is silently unavailable —

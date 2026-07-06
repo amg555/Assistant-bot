@@ -135,7 +135,7 @@ process.on("uncaughtException", (err) => {
 
 const server = app.listen(env.PORT, async () => {
   logger.info({ port: env.PORT, env: env.NODE_ENV }, "server_started");
-  void runMigrations();
+  runMigrations().catch(() => {});
 });
 
 function shutdown(signal: string) {

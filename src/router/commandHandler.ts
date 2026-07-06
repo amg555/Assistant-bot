@@ -195,9 +195,9 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       // opted into AI features must never have their notes silently
       // sent anywhere just because the operator configured a Jina key.
       if (isSemanticSearchConfigured) {
-        void isAiEnabledForAccount(accountId).then((enabled) => {
-          if (enabled) void embedNoteInBackground(accountId, result.data.id);
-        });
+        isAiEnabledForAccount(accountId).then((enabled) => {
+          if (enabled) embedNoteInBackground(accountId, result.data.id).catch(() => {});
+        }).catch(() => {});
       }
 
       return { kind: "text", text: 'Saved your note! Send "undo" within a few minutes to remove it.' };
@@ -565,7 +565,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
 
       return {
         kind: "text",
-        text: `Open this link to connect your Notion workspace (expires in 10 minutes):\n${url}\n\nAfter approving, come back and send: notion database <the database id you want to sync to>`,
+        text: `Open this link to connect your Notion workspace (expires in ${env.LINK_CODE_TTL_MINUTES} minutes):\n${url}\n\nAfter approving, come back and send: notion database <the database id you want to sync to>`,
       };
     }
 

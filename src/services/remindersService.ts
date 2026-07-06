@@ -32,7 +32,7 @@ export async function createReminder(
       .single();
     if (error) throw error;
 
-    await supabaseAdmin.from("activity_log").insert({ account_id: accountId, kind: "reminder_created" });
+    void supabaseAdmin.from("activity_log").insert({ account_id: accountId, kind: "reminder_created" });
 
     return { ok: true, data: { id: data.id } };
   } catch (err) {
@@ -97,7 +97,7 @@ export async function markReminderSent(
 ): Promise<void> {
   try {
     await supabaseAdmin.from("reminders").update({ status: "sent" }).eq("id", reminderId);
-    await supabaseAdmin.from("activity_log").insert({ account_id: accountId, kind: "reminder_sent" });
+    void supabaseAdmin.from("activity_log").insert({ account_id: accountId, kind: "reminder_sent" });
 
     const next = computeNextOccurrence(recurrenceRule, new Date(remindAtIso));
     if (next) {
@@ -107,7 +107,9 @@ export async function markReminderSent(
         remind_at: next.toISOString(),
         recurrence_rule: recurrenceRule,
       });
-      if (error) throw error;
+      if (error) {
+        logError("markReminderSent.recurrence", error, { reminderId, message });
+      }
     }
   } catch (err) {
     logError("markReminderSent", err, { reminderId });
