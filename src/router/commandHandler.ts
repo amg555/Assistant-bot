@@ -653,11 +653,17 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
         if (aiResult.ok) {
           const recognizedIntents = aiResult.intents.filter((i) => i.type !== "unrecognized");
           if (recognizedIntents.length > 0) {
-            const outcomeLines: string[] = [];
-            for (const intent of recognizedIntents) {
-              outcomeLines.push(await executeAiIntent(accountId, intent));
+            const chatIntent = recognizedIntents.find((i): i is { type: "chat"; text: string } => i.type === "chat");
+            const toolIntents = recognizedIntents.filter((i) => i.type !== "chat");
+
+            for (const intent of toolIntents) {
+              await executeAiIntent(accountId, intent);
             }
-            const replyText = outcomeLines.join("\n");
+
+            const replyText = chatIntent
+              ? chatIntent.text
+              : (await Promise.all(toolIntents.map((i) => executeAiIntent(accountId, i)))).join("\n");
+
             await recordExchange(accountId, "assistant", replyText);
             void maybeSummarizeOldConversation(accountId, await countExchanges(accountId));
             return { kind: "text", text: replyText };
@@ -707,7 +713,7 @@ async function executeAiIntent(accountId: string, intent: AiIntent): Promise<str
       // to AI processing of their notes by reaching this path.
       if (isSemanticSearchConfigured) void embedNoteInBackground(accountId, result.data.id);
 
-      return `Saved your note: "${validation.data.title}".`;
+      return `Got it, I'll remember that.`;
     }
     case "create_task": {
       const validation = safeValidate(createTaskSchema, {
@@ -720,7 +726,7 @@ async function executeAiIntent(accountId: string, intent: AiIntent): Promise<str
       const result = await createTask(accountId, validation.data);
       if (!result.ok) return `⚠ ${result.error}`;
 
-      return `Added task: "${validation.data.title}".`;
+      return `Done! I'll keep track of that.`;
     }
     case "create_reminder": {
       const validation = safeValidate(createReminderSchema, {
@@ -733,8 +739,8 @@ async function executeAiIntent(accountId: string, intent: AiIntent): Promise<str
       const result = await createReminder(accountId, validation.data);
       if (!result.ok) return `⚠ ${result.error}`;
 
-      const recurrenceNote = validation.data.recurrence === "none" ? "" : ` (repeating ${validation.data.recurrence})`;
-      return `Got it! I'll remind you ${friendlyTime(validation.data.remindAt.toISOString())}${recurrenceNote}.`;
+      const recurrenceNote = validation.data.recurrence === "none" ? "" : ` I'll repeat this ${validation.data.recurrence}.`;
+      return `You're all set${recurrenceNote}`;
     }
     case "create_alarm": {
       const remindAt = new Date(intent.remindAt);
@@ -749,7 +755,7 @@ async function executeAiIntent(accountId: string, intent: AiIntent): Promise<str
       const result = await createReminder(accountId, validation.data);
       if (!result.ok) return `⚠ ${result.error}`;
 
-      return `🔔 Alarm set! I'll keep reminding you ${friendlyTime(validation.data.remindAt.toISOString())} until you acknowledge it.`;
+      return `🔔 I've got you covered. I'll keep reminding you until you acknowledge it.`;
     }
     case "answer_question":
       return intent.answer;
