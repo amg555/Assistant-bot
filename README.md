@@ -50,6 +50,7 @@ Bot:        Got it — you said: add milk and eggs to shopping list. Saved your 
 | If you are... | Start here |
 |---|---|
 | 🧑 A **user** who wants to use the bot | [`docs/user-guide.md`](docs/user-guide.md) — full command reference |
+| 🏗 A **developer** extending the bot | [`docs/architecture.md`](docs/architecture.md) — layers, patterns, adding platforms |
 | 🛠 An **operator** deploying your own instance | [`docs/operator-runbook.md`](docs/operator-runbook.md) — step-by-step setup |
 | 🔗 Connecting **external services** (n8n, IFTTT) | [`docs/webhook-inbox.md`](docs/webhook-inbox.md) — webhook integration |
 | 🔄 Setting up **Notion sync** | [`docs/notion-sync.md`](docs/notion-sync.md) — OAuth + two-way sync |
