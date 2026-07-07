@@ -11,15 +11,12 @@ export interface Exchange {
 }
 
 export async function recordExchange(accountId: string, role: "user" | "assistant", text: string): Promise<void> {
-  try {
-    await supabaseAdmin.from("conversation_history").insert({
-      account_id: accountId,
-      role,
-      text,
-    });
-  } catch (err) {
-    logError("recordExchange", err, { accountId });
-  }
+  const { error } = await supabaseAdmin.from("conversation_history").insert({
+    account_id: accountId,
+    role,
+    text,
+  });
+  if (error) logError("recordExchange", error, { accountId });
 }
 
 export async function getConversationHistory(accountId: string, limit = MAX_EXCHANGES): Promise<Exchange[]> {
