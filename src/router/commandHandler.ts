@@ -40,7 +40,7 @@ import { parseWhen, extractRecurrence, parseHourOfDay, parseRelativeDurationMs }
 import { checkRateLimit } from "../middleware/rateLimit.js";
 import { recordUndoableAction, takeUndoableAction } from "../lib/undoStore.js";
 import { recordExchange, getConversationHistory, countExchanges } from "../lib/conversationMemory.js";
-import { logError } from "../lib/logger.js";
+import { logError, logger } from "../lib/logger.js";
 import { isGroqConfigured, isNotionConfigured, isSemanticSearchConfigured, env } from "../config/env.js";
 import { interpretMessage, answerQuestionWithRag, type AiIntent } from "../services/aiService.js";
 import { retrieveRelevantNotes } from "../services/ragService.js";
@@ -636,7 +636,9 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       return { kind: "text", text: "I don't have enough info in your notes to answer that." };
     }
 
-    const bossMatch = lower.match(/^i\s+am\s+(.+?)(?:\s+your)?\s*boss\b/);
+    logger.info({ context: "commandHandler", lower, text }, "boss_match_check");
+    const bossMatch = lower.match(/^i\s+am\s+(.+?)(?:\s+your)?\s*boss$/);
+    logger.info({ context: "commandHandler", hasMatch: !!bossMatch, match: bossMatch?.[1] }, "boss_match_result");
     if (bossMatch) {
       const name = bossMatch[1]!.trim();
       const noteTitle = `${name} is the boss`;
