@@ -39,6 +39,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
+# CACHE_BUST is set at deploy time to force a fresh build when source
+# files change. Without it, Docker's layer cache may reuse stale layers.
+ARG CACHE_BUST
 COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
