@@ -636,6 +636,21 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       return { kind: "text", text: "I don't have enough info in your notes to answer that." };
     }
 
+    // Direct pattern match for common introductions before delegating to
+    // Groq — Groq tends to treat "I am X your boss" as a greeting rather
+    // than information to save, so we handle it here where it's reliable.
+    const bossMatch = text.match(/^i\s+am\s+(.+?)(?:\s+your)?\s*boss\b/i);
+    if (bossMatch) {
+      const name = bossMatch[1]!.trim();
+      const noteTitle = `${name} is the boss`;
+      const noteResult = await createNote(accountId, { title: noteTitle, body: "", tags: [] });
+      if (noteResult.ok) {
+        void recordExchange(accountId, "user", text);
+        void recordExchange(accountId, "assistant", `Got it, ${name}!`);
+        return { kind: "text", text: `Got it, ${name}!` };
+      }
+    }
+
     // Natural-language fallback: only reached when no rigid command
     // syntax above matched, and only when the account has explicitly
     // opted in. This never bypasses validation — every intent Groq
