@@ -636,10 +636,7 @@ export async function handleCommand(cmd: IncomingCommand): Promise<BotReply> {
       return { kind: "text", text: "I don't have enough info in your notes to answer that." };
     }
 
-    // Direct pattern match for common introductions before delegating to
-    // Groq — Groq tends to treat "I am X your boss" as a greeting rather
-    // than information to save, so we handle it here where it's reliable.
-    const bossMatch = text.match(/^i\s+am\s+(.+?)(?:\s+your)?\s*boss\b/i);
+    const bossMatch = lower.match(/^i\s+am\s+(.+?)(?:\s+your)?\s*boss\b/);
     if (bossMatch) {
       const name = bossMatch[1]!.trim();
       const noteTitle = `${name} is the boss`;
